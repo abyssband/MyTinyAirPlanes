@@ -1,0 +1,20 @@
+{
+  "name": "my-tiny-airplanes",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:playwright": "node ./scripts/playwright-smoke.mjs",
+    "test:playwright:fail-missed": "node ./scripts/playwright-fail-missed.mjs",
+    "test:playwright:fail-takeoff-overrun": "node ./scripts/playwright-fail-takeoff-overrun.mjs",
+    "test:playwright:fail-landing-overrun": "node ./scripts/playwright-fail-landing-overrun.mjs",
+    "test:playwright:fail-sunset": "node ./scripts/playwright-fail-sunset.mjs",
+    "test:playwright:fail-crash": "node ./scripts/playwright-fail-crash.mjs",
+    "test:playwright:persistence-touch": "node ./scripts/playwright-persistence-touch.mjs",
+    "test:playwright:determinism": "node ./scripts/playwright-determinism.mjs",
+    "test:playwright:ghost": "node ./scripts/playwright-ghost.mjs",
+    "test:playwright:all": "npm run test:playwright && npm run test:playwright:fail-missed && npm run test:playwright:fail-takeoff-overrun && npm run test:playwright:fail-landing-overrun && npm run test:playwright:fail-sunset && npm run test:playwright:fail-crash && npm run test:playwright:persistence-touch && npm run test:playwright:determinism && npm run test:playwright:ghost"
+  },
+  "devDependencies": {
+    "playwright": "^1.58.2"
+  }
+}
