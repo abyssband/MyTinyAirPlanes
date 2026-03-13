@@ -1,24 +1,28 @@
 import {
+  ACTIVE_VEHICLE_ID,
   AIRPORTS,
   FORCE_DEBUG,
   MAP_LANDMASSES,
   MAP_REGION_STICKERS,
   MUSIC_PATTERN,
   ROUTES,
+  SPACE_REFERENCE,
   STORAGE_BEST_KEY,
   STORAGE_GHOSTS_KEY,
+  STORAGE_STICKERS_KEY,
   STORAGE_UNLOCK_KEY,
-} from "./src/config.js?v=20260313-1205";
-import { createAudioController } from "./src/audio.js?v=20260313-1205";
-import { createFlightRenderer } from "./src/flight/render.js?v=20260313-1205";
-import { createFlightRuntime } from "./src/flight/runtime.js?v=20260313-1205";
+  VEHICLE_PROFILES,
+} from "./src/config.js?v=20260314-0035";
+import { createAudioController } from "./src/audio.js?v=20260314-0035";
+import { createFlightRenderer } from "./src/flight/render.js?v=20260314-0035";
+import { createFlightRuntime } from "./src/flight/runtime.js?v=20260314-0035";
 import {
   loadPersistedState,
   saveAudioPreference,
   saveDebugPreference,
   saveGhostPreference,
   saveProgressData,
-} from "./src/storage.js?v=20260313-1205";
+} from "./src/storage.js?v=20260314-0035";
 import {
   blendHex,
   clamp,
@@ -28,7 +32,7 @@ import {
   lerp,
   roundNumber,
   smoothStep,
-} from "./src/utils.js?v=20260313-1205";
+} from "./src/utils.js?v=20260314-0035";
 
 const mapScreen = document.getElementById("map-screen");
 const flightScreen = document.getElementById("flight-screen");
@@ -60,11 +64,14 @@ const debugToggleButton = document.getElementById("debug-toggle");
 
 const hudDistance = document.getElementById("hud-distance");
 const hudHealth = document.getElementById("hud-health");
+const hudSpeedLabel = document.getElementById("hud-speed-label");
+const hudAltitudeLabel = document.getElementById("hud-altitude-label");
 const hudFuel = document.getElementById("hud-fuel");
 const hudScore = document.getElementById("hud-score");
 const hudPhase = document.getElementById("hud-phase");
 const hudSystems = document.getElementById("hud-systems");
 const hudGhost = document.getElementById("hud-ghost");
+const hudOrbit = document.getElementById("hud-orbit");
 const hudMission = document.getElementById("hud-mission");
 const debugPanel = document.getElementById("debug-panel");
 
@@ -73,6 +80,10 @@ const resultSummary = document.getElementById("result-summary");
 const resultBody = document.getElementById("result-body");
 const resultStats = document.getElementById("result-stats");
 const resultNotes = document.getElementById("result-notes");
+const resultPanel = resultScreen?.querySelector(".result-panel");
+const resultKicker = resultScreen?.querySelector(".result-kicker");
+const resultStickerStrip = document.getElementById("result-sticker-strip");
+const resultStamp = document.getElementById("result-stamp");
 const resultContinuePanel = document.getElementById("result-continue-panel");
 const resultContinueSummary = document.getElementById("result-continue-summary");
 const continueFlightButton = document.getElementById("continue-flight");
@@ -95,6 +106,7 @@ const state = {
   unlockedRoute: 0,
   bestRuns: {},
   ghostRuns: {},
+  stickerCollection: {},
   mapHoverRoute: -1,
   mapHoverRegion: "",
   mapRegionPop: {},
@@ -116,7 +128,38 @@ const state = {
   lastTick: performance.now(),
 };
 
+const ACTIVE_VEHICLE = VEHICLE_PROFILES[ACTIVE_VEHICLE_ID];
+
 const GHOST_SAMPLE_INTERVAL = 0.08;
+const DISPLAY_SPEED_KMH_PER_UNIT = 0.18;
+const DISPLAY_VERTICAL_MS_PER_UNIT = 0.035;
+const CRUISE_ALTITUDE_SCALE = [
+  [0, 0],
+  [120, 600],
+  [156, 1000],
+  [240, 1800],
+  [392, 5200],
+  [560, 9200],
+  [820, 14000],
+  [1100, 28000],
+  [1400, 72000],
+  [1650, 100000],
+  [1850, 160000],
+  [2200, 380000],
+];
+const AGL_ALTITUDE_SCALE = [
+  [0, 0],
+  [12, 1],
+  [24, 4],
+  [36, 8],
+  [60, 16],
+  [90, 28],
+  [120, 40],
+  [144, 52],
+  [180, 78],
+  [240, 130],
+  [320, 210],
+];
 
 const audioController = createAudioController({
   getState: () => state,
@@ -124,6 +167,7 @@ const audioController = createAudioController({
 });
 const flightRuntime = createFlightRuntime({
   ROUTES,
+  activeVehicle: ACTIVE_VEHICLE,
   gameCanvas,
   state,
   clamp,
@@ -138,6 +182,7 @@ const flightRuntime = createFlightRuntime({
   currentStallSpeed,
   landingAssistState,
   updateFlightSystems,
+  spaceVisualRatio,
 });
 const {
   cameraX,
@@ -162,6 +207,7 @@ const {
 const flightRenderer = createFlightRenderer({
   AIRPORTS,
   ROUTES,
+  SPACE_REFERENCE,
   gameCanvas,
   gameCtx,
   clamp,
@@ -183,14 +229,22 @@ const flightRenderer = createFlightRenderer({
   getAltitudeBandState,
   landingAssistState,
   nightApproachRatio,
+  displaySpeedKmh,
+  displaySinkRateMs,
+  aglMeters,
+  cruiseAltitudeMeters,
+  formatAltitudeValue,
+  spaceAltitudeProfile,
   getState: () => state,
 });
 
 function missionItems(route) {
+  const challenge = route.orbitChallenge;
   return [
-    `成功抵達 B 機場`,
-    `收集至少 ${route.mission.stars} 顆星星`,
-    `穿過至少 ${route.mission.drafts} 道風流`,
+    `從 ${AIRPORTS[route.from].code} 跑道穩定離地`,
+    `巡航時嘗試把最高高度拉到 ${challenge.targetKm} km，完成「${challenge.label}」`,
+    `保持高度與速度，一路飛向 ${AIRPORTS[route.to].code}`,
+    `對準 ${AIRPORTS[route.to].code} 跑道並完整滑停`,
   ];
 }
 
@@ -199,13 +253,14 @@ function loadProgress() {
   state.unlockedRoute = persisted.unlockedRoute;
   state.bestRuns = persisted.bestRuns;
   state.ghostRuns = persisted.ghostRuns;
+  state.stickerCollection = persisted.stickerCollection;
   state.audioEnabled = persisted.audioEnabled;
   state.ghostEnabled = persisted.ghostEnabled;
   state.debugEnabled = persisted.debugEnabled;
 }
 
 function saveProgress() {
-  saveProgressData(localStorage, state.unlockedRoute, state.bestRuns, state.ghostRuns);
+  saveProgressData(localStorage, state.unlockedRoute, state.bestRuns, state.ghostRuns, state.stickerCollection);
 }
 
 function saveAudioSetting() {
@@ -313,6 +368,204 @@ function currentFuelPercent(flight) {
     return 0;
   }
   return clamp((flight.fuel / Math.max(1, flight.maxFuel)) * 100, 0, 100);
+}
+
+function interpolateDisplayScale(value, points) {
+  const safeValue = Math.max(0, value);
+  if (safeValue <= points[0][0]) {
+    return points[0][1];
+  }
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const [fromRaw, fromValue] = points[i];
+    const [toRaw, toValue] = points[i + 1];
+    if (safeValue <= toRaw) {
+      const t = (safeValue - fromRaw) / Math.max(1, toRaw - fromRaw);
+      return lerp(fromValue, toValue, t);
+    }
+  }
+  const [lastRaw, lastValue] = points[points.length - 1];
+  const [prevRaw, prevValue] = points[points.length - 2];
+  const slope = (lastValue - prevValue) / Math.max(1, lastRaw - prevRaw);
+  return lastValue + (safeValue - lastRaw) * slope;
+}
+
+function displaySpeedKmh(rawSpeed) {
+  return Math.max(0, Math.round((rawSpeed * DISPLAY_SPEED_KMH_PER_UNIT) / 5) * 5);
+}
+
+function displayVerticalSpeedMs(rawVerticalSpeed) {
+  return Math.round(rawVerticalSpeed * DISPLAY_VERTICAL_MS_PER_UNIT * 10) / 10;
+}
+
+function displaySinkRateMs(rawSinkRate) {
+  return Math.round(Math.max(0, rawSinkRate) * DISPLAY_VERTICAL_MS_PER_UNIT * 10) / 10;
+}
+
+function cruiseAltitudeMeters(flight, altitude = flight?.altitude ?? 0) {
+  if (!flight) {
+    return 0;
+  }
+  const altitudeAboveSea = Math.max(0, altitude - oceanSurfaceAt(flight.worldX));
+  return interpolateDisplayScale(altitudeAboveSea, CRUISE_ALTITUDE_SCALE);
+}
+
+function aglMetersFromRaw(heightAboveDeck) {
+  return interpolateDisplayScale(heightAboveDeck, AGL_ALTITUDE_SCALE);
+}
+
+function aglMeters(flight, altitude = flight?.altitude ?? 0) {
+  if (!flight) {
+    return 0;
+  }
+  const rawHeight = Math.max(0, altitude - (flight.runwayAltitude + flight.planeBottomOffset));
+  return aglMetersFromRaw(rawHeight);
+}
+
+function formatAltitudeValue(meters, compact = false) {
+  if (meters >= 1000) {
+    return `${(meters / 1000).toFixed(compact ? 1 : 2)} km`;
+  }
+  return `${Math.round(meters)} m`;
+}
+
+function spaceAltitudeProfile(flight, altitude = flight?.altitude ?? 0) {
+  if (!flight) {
+    return {
+      altitudeMeters: 0,
+      altitudeKm: 0,
+      visualRatio: 0,
+      zone: "atmosphere",
+      label: "大氣層內",
+      distanceToKarmanKm: SPACE_REFERENCE.karmanLineKm,
+      distanceToOrbitKm: SPACE_REFERENCE.lowEarthOrbitStartKm,
+      crossedKarman: false,
+      crossedOrbit: false,
+    };
+  }
+  const altitudeMeters = cruiseAltitudeMeters(flight, altitude);
+  const altitudeKm = altitudeMeters / 1000;
+  let zone = "atmosphere";
+  let label = "大氣層內";
+  if (altitudeKm >= SPACE_REFERENCE.issMinKm && altitudeKm <= SPACE_REFERENCE.issMaxKm) {
+    zone = "iss";
+    label = "ISS 高度帶";
+  } else if (altitudeKm >= SPACE_REFERENCE.lowEarthOrbitStartKm) {
+    zone = "leo";
+    label = "低地球軌道";
+  } else if (altitudeKm >= SPACE_REFERENCE.karmanLineKm) {
+    zone = "suborbital";
+    label = "卡門線外側";
+  } else if (altitudeKm >= SPACE_REFERENCE.visualStartKm) {
+    zone = "upper-atmosphere";
+    label = "臨近太空";
+  }
+  return {
+    altitudeMeters,
+    altitudeKm,
+    visualRatio: clamp(
+      smoothStep(
+        (altitudeKm - SPACE_REFERENCE.visualStartKm)
+        / Math.max(1, SPACE_REFERENCE.lowEarthOrbitStartKm - SPACE_REFERENCE.visualStartKm),
+      ),
+      0,
+      1,
+    ),
+    zone,
+    label,
+    distanceToKarmanKm: Math.max(0, SPACE_REFERENCE.karmanLineKm - altitudeKm),
+    distanceToOrbitKm: Math.max(0, SPACE_REFERENCE.lowEarthOrbitStartKm - altitudeKm),
+    crossedKarman: altitudeKm >= SPACE_REFERENCE.karmanLineKm,
+    crossedOrbit: altitudeKm >= SPACE_REFERENCE.lowEarthOrbitStartKm,
+  };
+}
+
+function spaceVisualRatio(flight) {
+  return spaceAltitudeProfile(flight).visualRatio;
+}
+
+function orbitChallengeStatus(route, flight) {
+  const challenge = route?.orbitChallenge || null;
+  const currentProfile = spaceAltitudeProfile(flight);
+  const peakProfile = spaceAltitudeProfile(flight, flight?.peakAltitude || flight?.altitude || 0);
+  if (!challenge) {
+    return {
+      challenge: null,
+      currentProfile,
+      peakProfile,
+      reached: false,
+      currentRemainingKm: 0,
+      peakRemainingKm: 0,
+    };
+  }
+  return {
+    challenge,
+    currentProfile,
+    peakProfile,
+    reached: peakProfile.altitudeKm >= challenge.targetKm,
+    currentRemainingKm: Math.max(0, challenge.targetKm - currentProfile.altitudeKm),
+    peakRemainingKm: Math.max(0, challenge.targetKm - peakProfile.altitudeKm),
+  };
+}
+
+function orbitChallengeMeta(route) {
+  const challenge = route?.orbitChallenge;
+  if (!challenge) {
+    return "無高空挑戰";
+  }
+  return `${challenge.label} · ${challenge.targetKm} km`;
+}
+
+function orbitChallengeSummary(route) {
+  const challenge = route?.orbitChallenge;
+  if (!challenge) {
+    return "";
+  }
+  return `${challenge.badge} ${challenge.targetKm} km`;
+}
+
+function stickerCount() {
+  return Object.keys(state.stickerCollection || {}).length;
+}
+
+function hasOrbitSticker(routeId) {
+  return Boolean(state.stickerCollection?.[routeId]);
+}
+
+function collectOrbitSticker(route, orbitChallenge) {
+  if (!route || !orbitChallenge?.challenge || hasOrbitSticker(route.id)) {
+    return false;
+  }
+  state.stickerCollection[route.id] = true;
+  saveProgress();
+  return true;
+}
+
+function altitudeDisplayState(flight) {
+  if (!flight) {
+    return {
+      label: "高度",
+      value: "0 m",
+      meters: 0,
+      mode: "altitude",
+    };
+  }
+  const assist = landingAssistState(flight);
+  const useAgl = flight.grounded
+    || flight.phase === "takeoff_roll"
+    || flight.phase === "landing_roll"
+    || flight.phase === "approach"
+    || (flight.phase === "descent" && assist.distanceToThreshold <= 3200);
+  const meters = useAgl ? aglMeters(flight) : cruiseAltitudeMeters(flight);
+  return {
+    label: useAgl ? "離地高" : "高度",
+    value: formatAltitudeValue(meters, true),
+    meters,
+    mode: useAgl ? "agl" : "altitude",
+  };
+}
+
+function formatSpeedLabel(rawSpeed) {
+  return `${displaySpeedKmh(rawSpeed)} km/h`;
 }
 
 function autoThrottleTarget(flight) {
@@ -696,6 +949,7 @@ function getSnapshot() {
     screen: state.screen,
     selectedRoute: state.selectedRoute,
     unlockedRoute: state.unlockedRoute,
+    stickerCount: stickerCount(),
     debugEnabled: state.debugEnabled,
     audioEnabled: state.audioEnabled,
     ghostEnabled: state.ghostEnabled,
@@ -715,6 +969,9 @@ function getSnapshot() {
     const flight = state.flight;
     const route = ROUTES[flight.routeIndex];
     const touchdown = getFlightTouchdownState(flight);
+    const altitudeInfo = altitudeDisplayState(flight);
+    const orbitProfile = spaceAltitudeProfile(flight);
+    const orbitChallenge = orbitChallengeStatus(route, flight);
     snapshot.flight = {
       routeId: route.id,
       from: route.from,
@@ -724,9 +981,25 @@ function getSnapshot() {
       remaining: roundNumber(arrivalRunwayStart(flight) - flight.worldX),
       routeDistance: flight.routeDistance,
       altitude: roundNumber(flight.altitude),
+      displayedAltitude: altitudeInfo.value,
+      displayedAltitudeMeters: roundNumber(altitudeInfo.meters),
+      displayedAltitudeMode: altitudeInfo.mode,
+      cruiseAltitudeKm: roundNumber(orbitProfile.altitudeKm, 1),
+      orbitZone: orbitProfile.zone,
+      orbitLabel: orbitProfile.label,
+      orbitChallengeLabel: orbitChallenge.challenge?.label || "",
+      orbitChallengeTargetKm: orbitChallenge.challenge?.targetKm || 0,
+      orbitChallengeReached: orbitChallenge.reached,
+      orbitChallengeRemainingKm: roundNumber(orbitChallenge.currentRemainingKm, 1),
+      distanceToKarmanKm: roundNumber(orbitProfile.distanceToKarmanKm, 1),
+      distanceToOrbitKm: roundNumber(orbitProfile.distanceToOrbitKm, 1),
+      crossedKarman: orbitProfile.crossedKarman,
+      crossedOrbit: orbitProfile.crossedOrbit,
       cameraAltitude: roundNumber(flight.cameraAltitude),
       verticalSpeed: roundNumber(flight.vy),
+      verticalSpeedMs: roundNumber(displayVerticalSpeedMs(flight.vy), 1),
       speed: roundNumber(flight.speed),
+      speedKmh: displaySpeedKmh(flight.speed),
       altitudeBand: flight.altitudeBand || getAltitudeBandState(flight).id,
       altitudeBandLabel: altitudeBandLabel(flight),
       altitudeBandHint: altitudeBandHint(flight),
@@ -744,8 +1017,6 @@ function getSnapshot() {
       engineOut: flight.engineOut,
       hadEngineOut: flight.hadEngineOut,
       lowFuelWarning: flight.lowFuelWarning,
-      stars: flight.stars,
-      drafts: flight.drafts,
       hits: flight.hits,
       grounded: flight.grounded,
       runwayState: flight.runwayState,
@@ -753,6 +1024,8 @@ function getSnapshot() {
       phaseText: phaseLabel(flight),
       spaceRatio: roundNumber(spaceAltitudeRatio(flight), 3),
       runwayAltitude: flight.runwayAltitude,
+      peakAltitude: roundNumber(flight.peakAltitude || flight.altitude),
+      peakCruiseAltitudeKm: roundNumber(spaceAltitudeProfile(flight, flight.peakAltitude || flight.altitude).altitudeKm, 1),
       runwayHalf: flight.runwayHalf,
       arrivalAirportX: roundNumber(flight.arrivalAirportX),
       departureRunwayStart: roundNumber(departureRunwayStart(flight)),
@@ -773,11 +1046,20 @@ function getSnapshot() {
       gearDown: touchdown.gearDown,
       flareWindow: touchdown.flareWindow,
       distanceToThreshold: roundNumber(touchdown.distanceToThreshold),
+      displayedAglMeters: roundNumber(aglMeters(flight)),
       touchdownRating: flight.touchdownRating || "",
       touchdownSpeed: roundNumber(flight.touchdownSpeed),
+      touchdownSpeedKmh: displaySpeedKmh(flight.touchdownSpeed),
       touchdownSinkRate: roundNumber(flight.touchdownSinkRate),
+      touchdownSinkRateMs: roundNumber(displaySinkRateMs(flight.touchdownSinkRate), 1),
       spoilers: roundNumber(flight.spoilers, 2),
       nightRatio: roundNumber(nightApproachRatio(flight), 2),
+      performanceProfile: flight.performanceProfile || "",
+      vehicleName: flight.vehicleName || "",
+      vehicleBadge: flight.vehicleBadge || "",
+      vehicleStyle: flight.vehicleStyle || "",
+      orbitMessage: flight.orbitMessage || "",
+      orbitStickerEarned: Boolean(flight.orbitStickerEarned),
       ghostAvailable: Boolean(flight.ghostPlayback?.samples?.length),
       ghostSlot: flight.ghostPlayback?.slot || "",
       ghostTime: roundNumber(flight.ghostPlayback?.time || 0, 1),
@@ -831,11 +1113,14 @@ function renderDebugPanel() {
     `progress      ${(flight.progress * 100).toFixed(1)}%`,
     `worldX        ${flight.worldX} / ${flight.routeDistance}`,
     `remaining     ${flight.remaining}`,
-    `altitude      ${flight.altitude}`,
+    `altitude      ${flight.altitude} / ${flight.displayedAltitude} (${flight.displayedAltitudeMode})`,
+    `orbit         ${flight.orbitLabel} / ${flight.cruiseAltitudeKm} km / K ${flight.distanceToKarmanKm} / O ${flight.distanceToOrbitKm}`,
+    `challenge     ${flight.orbitChallengeLabel || "-"} / ${flight.orbitChallengeTargetKm || "-"} km / ${flight.orbitChallengeReached ? "done" : `${flight.orbitChallengeRemainingKm} km left`}`,
     `band          ${flight.altitudeBandLabel}`,
     `cameraAlt     ${flight.cameraAltitude}`,
-    `verticalSpeed ${flight.verticalSpeed}`,
-    `speed         ${flight.speed}`,
+    `verticalSpeed ${flight.verticalSpeed} / ${flight.verticalSpeedMs} m/s`,
+    `speed         ${flight.speed} / ${flight.speedKmh} km/h`,
+    `profile       ${flight.performanceProfile || "-"}`,
     `systems       thr ${flight.throttleTarget} / flaps ${flight.flaps} / brake ${flight.airbrake ? "on" : "off"} / input ${flight.left ? "L" : "-"}${flight.right ? "R" : "-"}`,
     `fuel          ${flight.fuelPct}% (${flight.fuel}/${flight.maxFuel}) / ${flight.engineOut ? "engine-out" : flight.lowFuelWarning ? "low" : "stable"}`,
     `sun           ${flight.sunPct}%`,
@@ -847,10 +1132,10 @@ function renderDebugPanel() {
     `takeoff       ${flight.takeoffReady ? "ready" : "build-speed"} / remain ${flight.departureRemaining}`,
     `landing       ${flight.safeTouchdown ? "safe" : flight.crashTouchdown ? "unsafe" : "bounce"} / remain ${flight.arrivalRemaining}`,
     `assist        gear ${flight.gearDown ? "down" : "up"} / flare ${flight.flareWindow ? "yes" : "no"} / spoilers ${flight.spoilers}`,
-    `touchdown     ${flight.touchdownRating || "-"} / sink ${flight.touchdownSinkRate || "-"} / speed ${flight.touchdownSpeed || "-"}`,
+    `touchdown     ${flight.touchdownRating || "-"} / sink ${flight.touchdownSinkRateMs || "-"} m/s / speed ${flight.touchdownSpeedKmh || "-"} km/h`,
+    `orbit cue     ${flight.orbitMessage || "-"}`,
     `rollout est   ${flight.stopEstimate}`,
     `ghost         ${flight.ghostEnabled ? (flight.ghostAvailable ? `${flight.ghostSlot || "best"} / ${flight.ghostTime}s / ${flight.ghostFrames} frames` : "none") : "hidden"}`,
-    `stars/drafts  ${flight.stars} / ${flight.drafts}`,
   ].join("\n");
 }
 
@@ -858,7 +1143,10 @@ function normalizeDebugActor(actor, flight) {
   if (!actor || typeof actor !== "object") {
     return null;
   }
-  const type = typeof actor.type === "string" ? actor.type : "star";
+  const type = typeof actor.type === "string" ? actor.type : "bird";
+  if (!["bird", "storm", "jetstream"].includes(type)) {
+    return null;
+  }
   return {
     type,
     band: typeof actor.band === "string" ? actor.band : "mid",
@@ -871,7 +1159,6 @@ function normalizeDebugActor(actor, flight) {
     speedBonus: Number.isFinite(actor.speedBonus) ? Number(actor.speedBonus) : 160,
     lift: Number.isFinite(actor.lift) ? Number(actor.lift) : 20,
     damage: Number.isFinite(actor.damage) ? Number(actor.damage) : 10,
-    amount: Number.isFinite(actor.amount) ? Number(actor.amount) : 18,
     phase: Number.isFinite(actor.phase) ? Number(actor.phase) : 0,
     collected: Boolean(actor.collected),
   };
@@ -896,7 +1183,7 @@ function debugPatchFlight(patch = {}) {
     return getSnapshot();
   }
   const flight = state.flight;
-  const numericKeys = ["worldX", "altitude", "cameraAltitude", "vy", "speed", "sun", "fuel", "maxFuel", "stars", "drafts", "hits", "groundBounce", "groundBounceVelocity", "throttle", "throttleTarget", "spawnCursor"];
+  const numericKeys = ["worldX", "altitude", "cameraAltitude", "vy", "speed", "sun", "fuel", "maxFuel", "hits", "groundBounce", "groundBounceVelocity", "throttle", "throttleTarget", "spawnCursor", "phaseTime"];
   numericKeys.forEach((key) => {
     if (Number.isFinite(patch[key])) {
       flight[key] = Number(patch[key]);
@@ -904,6 +1191,9 @@ function debugPatchFlight(patch = {}) {
   });
   if (typeof patch.phase === "string") {
     flight.phase = patch.phase;
+    if (!Number.isFinite(patch.phaseTime)) {
+      flight.phaseTime = 0;
+    }
   }
   if (typeof patch.grounded === "boolean") {
     flight.grounded = patch.grounded;
@@ -969,6 +1259,7 @@ function updateMusic() {
 
 function setScreen(name) {
   state.screen = name;
+  document.body.dataset.screen = name;
   mapScreen.classList.toggle("hidden", name !== "map");
   flightScreen.classList.toggle("hidden", name !== "flight");
   resultScreen.classList.toggle("hidden", name !== "result");
@@ -999,6 +1290,18 @@ function routeCodeLabel(route) {
 
 function routeNameLabel(route) {
   return `${AIRPORTS[route.from].name} -> ${AIRPORTS[route.to].name}`;
+}
+
+function formatMinutesLabel(totalMinutes) {
+  if (!Number.isFinite(totalMinutes)) {
+    return "--";
+  }
+  if (totalMinutes >= 60) {
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = Math.round(totalMinutes % 60);
+    return minutes > 0 ? `${hours} 小時 ${minutes} 分` : `${hours} 小時`;
+  }
+  return `${Math.round(totalMinutes)} 分`;
 }
 
 function normalizeLongitude(lon) {
@@ -1155,6 +1458,86 @@ function renderResultNotes(notes) {
     : "";
 }
 
+function renderResultDecor({
+  arrived,
+  mission,
+  flight,
+  route,
+  reason,
+  ghostRaceMessage,
+  unlockMessage,
+}) {
+  if (!resultPanel || !resultStickerStrip || !resultStamp) {
+    return;
+  }
+
+  const stickers = [
+    { label: routeCodeLabel(route), tone: "route" },
+    arrived
+      ? {
+          label: flight.touchdownRating ? `接地 ${flight.touchdownRating}` : "安全抵達",
+          tone: flight.touchdownRating === "絨毛般輕盈" ? "sun" : "peach",
+        }
+      : {
+          label: {
+            missed: "再修進場",
+            crash: "重整姿態",
+            takeoff_overrun: "再補速度",
+            landing_overrun: "收得更穩",
+          }[reason] || "再飛一次",
+          tone: "sky",
+        },
+    arrived && mission.orbitChallenge?.challenge
+      ? mission.orbitChallenge.reached
+        ? { label: `${mission.orbitChallenge.challenge.label} 完成`, tone: "mint" }
+        : { label: `高空目標未達`, tone: "berry" }
+      : mission.success
+        ? { label: "任務完成", tone: "mint" }
+        : { label: "需要再進場", tone: "berry" },
+    flight.orbitStickerEarned
+      ? { label: "新貼紙入袋", tone: "sun" }
+      : unlockMessage
+      ? { label: "新航線解鎖", tone: "sun" }
+      : flight.hadEngineOut
+        ? { label: "熄火滑翔", tone: "ink" }
+        : ghostRaceMessage
+          ? { label: "鬼影對決", tone: "sky" }
+          : { label: `燃油 ${Math.round(currentFuelPercent(flight))}%`, tone: "peach" },
+  ];
+
+  resultStickerStrip.innerHTML = "";
+  stickers.slice(0, 4).forEach((sticker, index) => {
+    const element = document.createElement("span");
+    element.className = `result-sticker result-sticker-${sticker.tone}`;
+    element.style.setProperty("--sticker-rotate", `${[-6, 4, -3, 5][index % 4]}deg`);
+    element.style.setProperty("--sticker-delay", `${120 + index * 90}ms`);
+    element.textContent = sticker.label;
+    resultStickerStrip.appendChild(element);
+  });
+
+  resultStamp.textContent = mission.success && arrived
+    ? "mission complete"
+    : arrived
+      ? "cleared to land"
+      : reason === "missed"
+        ? "go around"
+        : "try again";
+  resultStamp.className = `result-stamp ${
+    arrived ? "result-stamp-success" : "result-stamp-failure"
+  }${mission.success && arrived ? " result-stamp-mission" : ""}`;
+
+  if (resultKicker) {
+    resultKicker.textContent = arrived ? "arrival postcard" : "flight memo";
+  }
+
+  resultPanel.classList.toggle("result-success", arrived);
+  resultPanel.classList.toggle("result-failure", !arrived);
+  resultPanel.classList.toggle("mission-cleared", Boolean(arrived && mission.success));
+  resultPanel.classList.remove("result-animate");
+  void resultPanel.offsetWidth;
+  resultPanel.classList.add("result-animate");
+}
+
 function renderContinuePanel(continueSuggestion, currentRouteIndex) {
   if (!resultContinuePanel || !continueFlightButton || !resultContinueSummary) {
     return;
@@ -1246,6 +1629,7 @@ function updateRouteInfo() {
   const best = state.bestRuns[route.id];
   const ghost = getGhostRun(route.id);
   const ghostRecord = getGhostRecord(route.id);
+  const stickerOwned = hasOrbitSticker(route.id);
   const ghostLabel = ghost
     ? `${state.ghostEnabled ? ghostSlotLabel(getGhostSlot(route.id)) : "鬼影已隱藏"}`
     : "尚未建立";
@@ -1256,13 +1640,18 @@ function updateRouteInfo() {
     ? `${best.time.toFixed(1)} 秒`
     : "尚無紀錄";
   const bestMeta = best
-    ? `${best.stars} 星`
-    : "等你刷新";
+    ? "目前最佳完賽時間"
+    : "等你完成第一趟航班";
+  const orbitChallenge = route.orbitChallenge;
+  const vehicle = ACTIVE_VEHICLE;
+  const lowCruiseKmh = displaySpeedKmh(vehicle.maxSpeed * 0.42);
+  const midCruiseKmh = displaySpeedKmh(vehicle.maxSpeed * 0.58);
+  const highCruiseKmh = displaySpeedKmh(vehicle.maxSpeed * 0.76);
   const cruiseNote = route.difficulty >= 4
-    ? "低空撿星、中空吃風流、高空追噴流；三條高度帶都會刷出燃油補給，長航段要提早選線。"
+    ? `長航段建議提早選高度帶：低空約 ${formatAltitudeValue(interpolateDisplayScale(156, CRUISE_ALTITUDE_SCALE), true)}，中空約 ${formatAltitudeValue(interpolateDisplayScale(392, CRUISE_ALTITUDE_SCALE), true)}，高空約 ${formatAltitudeValue(interpolateDisplayScale(820, CRUISE_ALTITUDE_SCALE), true)}。${vehicle.badge} 在高空可推到約 ${highCruiseKmh} km/h，這條航線的高空挑戰是 ${orbitChallenge.label} ${orbitChallenge.targetKm} km。`
     : route.difficulty >= 3
-      ? "中段開始主動換線：低空賺星，中空穩定，高空衝速度，油量偏低時先往補給靠。"
-      : "先練習三條高度帶：低空有星線，中空最穩，高空最刺激，也都可能刷出燃油補給。";
+      ? `中段開始主動換線：低空速度大約 ${lowCruiseKmh}-${midCruiseKmh} km/h，中空最穩，高空則能推到 ${highCruiseKmh} km/h 左右；記得順手把高度推向 ${orbitChallenge.targetKm} km。`
+      : `先練習三條高度帶：低空貼海、中空穩定、高空最刺激；${vehicle.badge} 的巡航速度大致會落在 ${lowCruiseKmh}-${highCruiseKmh} km/h，並嘗試摸到 ${orbitChallenge.targetKm} km。`;
   routeTitle.textContent = `${from.name} -> ${to.name}`;
   if (routeFromCode) {
     routeFromCode.textContent = from.code;
@@ -1280,12 +1669,12 @@ function updateRouteInfo() {
     {
       label: "航程",
       value: `${route.realDistanceKm || route.distance} km`,
-      meta: `真實世界航距`,
+      meta: `真實航班約 ${formatMinutesLabel(route.estimatedRealMinutes)}`,
     },
     {
       label: "難度",
       value: stars,
-      meta: `第 ${route.difficulty} 級航班`,
+      meta: `遊戲約 ${route.estimatedGameMinutes?.toFixed(1) || "--"} 分鐘`,
     },
     {
       label: "最佳",
@@ -1296,6 +1685,21 @@ function updateRouteInfo() {
       label: "鬼影",
       value: ghostLabel,
       meta: ghostRecord?.last ? `最近 ${ghostRecord.last.time.toFixed(1)} 秒` : ghostMeta,
+    },
+    {
+      label: "高空目標",
+      value: orbitChallengeSummary(route),
+      meta: orbitChallenge.detail,
+    },
+    {
+      label: "載具",
+      value: vehicle.badge,
+      meta: vehicle.blurb,
+    },
+    {
+      label: "貼紙收藏",
+      value: stickerOwned ? "已收藏" : "未收藏",
+      meta: `${stickerCount()} / ${ROUTES.length} 張高空貼紙`,
     },
   ].map((item) => `
     <article class="briefing-stat">
@@ -1309,7 +1713,7 @@ function updateRouteInfo() {
     routeBriefing.innerHTML = [
       {
         label: "起飛",
-        text: `先沿 ${from.code} 跑道加速，速度足夠再抬頭離地。`,
+        text: `先沿 ${from.code} 跑道加速，接近 ${displaySpeedKmh(vehicle.rotateSpeed)}-${displaySpeedKmh(vehicle.takeoffSpeed)} km/h 再抬頭離地；這次測試載具是 ${vehicle.badge}。`,
       },
       {
         label: "巡航",
@@ -1317,7 +1721,11 @@ function updateRouteInfo() {
       },
       {
         label: "進場",
-        text: `提早對正 ${to.code} 跑道，flare 後接地並滑停。`,
+        text: `提早對正 ${to.code} 跑道，把速度慢慢收向 ${displaySpeedKmh(vehicle.landingMaxTouchdownSpeed * 0.82)}-${displaySpeedKmh(vehicle.landingMaxTouchdownSpeed)} km/h，離地約 ${formatAltitudeValue(aglMetersFromRaw(144), true)} 內開始 flare。`,
+      },
+      {
+        label: "高空目標",
+        text: `${orbitChallenge.label}：把最高高度帶到 ${orbitChallenge.targetKm} km。${orbitChallenge.detail}`,
       },
     ].map((item) => `
       <div class="briefing-step">
@@ -2832,15 +3240,19 @@ function cycleFlaps(step = 1) {
 }
 
 function flightSystemsLabel(flight) {
+  const baseVehicleLabel = ACTIVE_VEHICLE.badge || ACTIVE_VEHICLE.label;
   if (!flight) {
-    return "燃油 -- · 方向鍵速度 保持 · 自動襟翼 --";
+    return `${baseVehicleLabel} · 燃油 -- · 方向鍵速度 保持 · 自動襟翼 --`;
   }
+  const vehicleLabel = flight.vehicleBadge || flight.vehicleName || baseVehicleLabel;
+  const orbitProfile = spaceAltitudeProfile(flight);
   const fuelLabel = flight.engineOut
     ? "引擎熄火"
     : flight.lowFuelWarning
       ? `低油量 ${Math.round(currentFuelPercent(flight))}%`
       : `燃油 ${Math.round(currentFuelPercent(flight))}%`;
-  return `${altitudeBandLabel(flight)} · ${fuelLabel} · 方向鍵速度 ${speedControlLabel(flight)} · 自動襟翼 ${flapsLabel(flight.flaps)} · 自動空煞 ${state.input.airbrake ? "展開" : "收起"}`;
+  const orbitLabel = orbitProfile.zone === "atmosphere" ? "" : ` · ${orbitProfile.label}`;
+  return `${vehicleLabel} · ${altitudeBandLabel(flight)}${orbitLabel} · ${fuelLabel} · 方向鍵速度 ${speedControlLabel(flight)} · 自動襟翼 ${flapsLabel(flight.flaps)} · 自動空煞 ${state.input.airbrake ? "展開" : "收起"}`;
 }
 
 function drawFlight() {
@@ -2848,7 +3260,11 @@ function drawFlight() {
 }
 
 function phaseLabel(flight) {
+  const route = ROUTES[flight.routeIndex];
+  const destination = AIRPORTS[route.to];
   const landingAssist = landingAssistState(flight);
+  const shownAltitude = altitudeDisplayState(flight);
+  const orbitProfile = spaceAltitudeProfile(flight);
   if (flight.phase === "takeoff_roll" && flight.engineOut) {
     return "狀態: 燃油耗盡，跑道上已經沒有推力";
   }
@@ -2858,23 +3274,29 @@ function phaseLabel(flight) {
       : "狀態: 引擎熄火，改用滑翔保住高度";
   }
   if (flight.phase === "takeoff_roll") {
-    return flight.speed >= currentRotateSpeed(flight) ? "狀態: 速度足夠，抬頭起飛" : "狀態: 跑道加速中";
+    return flight.speed >= currentRotateSpeed(flight)
+      ? `狀態: 速度足夠，抬頭起飛 · ${formatSpeedLabel(flight.speed)}`
+      : `狀態: 跑道加速中 · ${formatSpeedLabel(flight.speed)}`;
   }
   if (flight.phase === "landing_roll") {
-    return flight.speed > 260 ? "狀態: 減速板展開，跑道減速" : "狀態: 跑道滑行減速";
+    return flight.speed > 260
+      ? `狀態: ${destination.code} 塔台確認接地，跑道減速中 · ${formatSpeedLabel(flight.speed)}`
+      : `狀態: ${destination.code} 跑道滑停中 · ${formatSpeedLabel(flight.speed)}`;
   }
   if (flight.phase === "descent") {
-    return "狀態: 提早減速下降，開始修正進場";
+    return `狀態: ${destination.code} 塔台引導下降 · ${shownAltitude.label} ${shownAltitude.value}`;
   }
-  if (spaceAltitudeRatio(flight) > 0.65) {
-    return `狀態: 高空軌道巡航 · ${altitudeBandLabel(flight)}`;
+  if (orbitProfile.zone !== "atmosphere") {
+    return `狀態: ${orbitProfile.label} · ${shownAltitude.value} · ${altitudeBandLabel(flight)}`;
   }
   if (landingAssist.flareWindow) {
-    return "狀態: 拉平 flare，準備接地";
+    return `狀態: ${destination.code} 跑道門檻前，拉平 flare`;
   }
   if (flight.phase === "approach") {
     const nightTag = nightApproachRatio(flight) > 0.45 ? "夜間" : "黃昏";
-    return landingAssist.gearDown ? `狀態: ${nightTag}放輪進場` : "狀態: 進場對準跑道";
+    return landingAssist.gearDown
+      ? `狀態: ${destination.code} ${nightTag}塔台進場中`
+      : `狀態: ${destination.code} 進場對準跑道`;
   }
   if (state.input.up) {
     return "狀態: 拉升爬高";
@@ -2889,45 +3311,149 @@ function phaseLabel(flight) {
     return "狀態: 加速巡航";
   }
   if (flight.lowFuelWarning) {
-    return `狀態: 低油量巡航 · ${altitudeBandLabel(flight)}`;
+    return `狀態: 低油量巡航 · ${shownAltitude.value} · ${altitudeBandLabel(flight)}`;
   }
   if (flight.vy > 30) {
-    return "狀態: 平穩爬升";
+    return `狀態: 平穩爬升 · ${shownAltitude.value}`;
   }
   if (flight.vy < -60) {
-    return `狀態: 緩降巡航 · ${altitudeBandLabel(flight)}`;
+    return `狀態: 緩降巡航 · ${shownAltitude.value} · ${altitudeBandLabel(flight)}`;
   }
-  return `狀態: 巡航中 · ${altitudeBandLabel(flight)}`;
+  return `狀態: 巡航中 · ${shownAltitude.value} · ${altitudeBandLabel(flight)}`;
 }
 
 function missionProgressLabel(flight, route) {
   const landingAssist = landingAssistState(flight);
+  const orbitProfile = spaceAltitudeProfile(flight);
+  const orbitChallenge = orbitChallengeStatus(route, flight);
   if (flight.phase === "takeoff_roll" && flight.engineOut) {
-    return `燃油已經見底，${AIRPORTS[route.from].code} 跑道上沒有足夠推力；除非補到燃油，不然這趟起飛只能中止`;
+    return `燃油已經見底，${AIRPORTS[route.from].code} 跑道上沒有足夠推力；這趟起飛只能中止。`;
   }
   if (!flight.grounded && flight.engineOut) {
-    return `引擎熄火，先穩住機頭維持滑翔，朝 ${AIRPORTS[route.to].code} 跑道或前方的燃油補給飛過去`;
+    return `引擎熄火，先穩住機頭維持滑翔，盡量把航向帶往 ${AIRPORTS[route.to].code} 跑道。`;
   }
   if (flight.phase === "takeoff_roll") {
-    return `沿 ${AIRPORTS[route.from].code} 跑道加速，用 → 保持加速，速度足夠後按 ↑ 抬頭離地`;
+    return `沿 ${AIRPORTS[route.from].code} 跑道加速，用 → 保持加速；看到 ${formatSpeedLabel(currentRotateSpeed(flight))} 左右就可以按 ↑ 抬頭離地`;
   }
   if (flight.phase === "landing_roll") {
     const rating = flight.touchdownRating ? ` · ${flight.touchdownRating}` : "";
-    return `保持機身穩定，沿 ${AIRPORTS[route.to].code} 跑道滑停${rating}`;
+    return `${AIRPORTS[route.to].code} 塔台確認接地，保持方向穩定沿跑道滑停${rating}`;
   }
   if (flight.phase === "descent") {
-    return `提早為 ${AIRPORTS[route.to].code} 進場做準備，先按 ← 減速，再用 ↑ / ↓ 把高度和下降率慢慢穩下來`;
+    return `${AIRPORTS[route.to].code} 塔台正在引導下降，先按 ← 把速度收進 ${formatSpeedLabel(flight.landingMaxTouchdownSpeed)} 以下，再用 ↑ / ↓ 穩住離地高度`;
   }
   if (landingAssist.flareWindow) {
-    return `接近 ${AIRPORTS[route.to].code} 跑道，輕拉機頭把下降率收在 ${Math.round(flight.landingBounceSink)} 以內`;
+    return `${AIRPORTS[route.to].code} 跑道就在前方，輕拉機頭 flare，把離地高收進 ${formatAltitudeValue(aglMetersFromRaw(flight.flareHeight), true)} 內，下降率盡量壓在 ${displaySinkRateMs(flight.landingBounceSink).toFixed(1)} m/s 內`;
   }
   if (flight.phase === "approach") {
-    return `已進入最後進場，對準 ${AIRPORTS[route.to].code} 跑道，用 ← 慢慢收速度，用 ↑ / ↓ 修正角度與接地點`;
+    return `${AIRPORTS[route.to].code} 最後進場中，跟著塔台卡與跑道燈對準；用 ← 慢慢把速度收向 ${formatSpeedLabel(flight.landingMaxTouchdownSpeed * 0.78)}，用 ↑ / ↓ 修正角度與接地點`;
+  }
+  if (orbitChallenge.reached) {
+    return `高空目標已完成：最高高度已碰到 ${orbitChallenge.challenge.targetKm} km 的 ${orbitChallenge.challenge.label}。現在開始規劃回降，準備 ${AIRPORTS[route.to].code} 進場。`;
+  }
+  if (orbitProfile.crossedOrbit) {
+    return `已進入 ${orbitProfile.label}，這裡用的是參考真實軌道高度門檻：卡門線 ${SPACE_REFERENCE.karmanLineKm} km、低軌道起點 ${SPACE_REFERENCE.lowEarthOrbitStartKm} km。記得提早規劃回降。`;
+  }
+  if (orbitProfile.crossedKarman) {
+    return `你已越過卡門線 ${SPACE_REFERENCE.karmanLineKm} km，離低軌道起點還有約 ${Math.round(orbitProfile.distanceToOrbitKm)} km；畫面會進一步轉成軌道感。`;
+  }
+  if (orbitProfile.zone === "upper-atmosphere") {
+    return `正在逼近卡門線，距離 ${SPACE_REFERENCE.karmanLineKm} km 還有約 ${Math.round(orbitProfile.distanceToKarmanKm)} km；這條航線的高空目標是 ${orbitChallenge.challenge.targetKm} km，還差約 ${Math.round(orbitChallenge.currentRemainingKm)} km。`;
   }
   if (flight.lowFuelWarning) {
-    return `燃油偏低，優先找前方的燃油補給；中空最好穩住姿態，低空與高空也能冒險補油`;
+    return `燃油偏低，先穩住姿態與速度；這段航程沒有補給點，優先把飛機完整帶到 ${AIRPORTS[route.to].code}`;
   }
-  return `${altitudeBandHint(flight)} · 目的地 ${AIRPORTS[route.to].code} · 星星 ${flight.stars}/${route.mission.stars} · 風流 ${flight.drafts}/${route.mission.drafts}`;
+  if (!flight.grounded && orbitChallenge.challenge) {
+    return `${altitudeBandHint(flight)} · 高空目標 ${orbitChallenge.challenge.label} ${orbitChallenge.challenge.targetKm} km · 目前還差約 ${Math.max(0, Math.round(orbitChallenge.currentRemainingKm))} km`;
+  }
+  return `${altitudeBandHint(flight)} · 目的地 ${AIRPORTS[route.to].code} · 保持航向與燃油，為最後進場提早布局`;
+}
+
+function orbitCueConfig(route, orbitProfile) {
+  switch (orbitProfile.zone) {
+    case "upper-atmosphere":
+      return {
+        sfx: "stratosphere",
+        text: `${routeCodeLabel(route)} 已進入高層大氣，天空開始轉成近太空色帶。`,
+      };
+    case "suborbital":
+      return {
+        sfx: "karman",
+        text: `${routeCodeLabel(route)} 越過卡門線 ${SPACE_REFERENCE.karmanLineKm} km，開始進入真正的近太空段。`,
+      };
+    case "leo":
+      return {
+        sfx: "orbit",
+        text: `${routeCodeLabel(route)} 已碰到低地球軌道參考高度，畫面和 HUD 會進一步轉成軌道模式。`,
+      };
+    case "iss":
+      return {
+        sfx: "iss",
+        text: `${routeCodeLabel(route)} 已抵達 ISS 高度帶附近，這已經是極限高空。`,
+      };
+    default:
+      return null;
+  }
+}
+
+function updateOrbitFeedback(flight, route, dt) {
+  const orbitProfile = spaceAltitudeProfile(flight);
+  const orbitChallenge = orbitChallengeStatus(route, flight);
+  const previousZone = flight.orbitCueZone || "atmosphere";
+  let changed = false;
+
+  flight.orbitMessageTimer = Math.max(0, (flight.orbitMessageTimer || 0) - dt);
+  flight.orbitPulse = Math.max(0, (flight.orbitPulse || 0) - dt * 1.8);
+
+  if (orbitProfile.zone !== previousZone) {
+    flight.orbitCueZone = orbitProfile.zone;
+    const cue = orbitCueConfig(route, orbitProfile);
+    if (cue) {
+      flight.orbitMessage = cue.text;
+      flight.orbitMessageTimer = 4.6;
+      flight.orbitPulse = 1;
+      playSfx(cue.sfx);
+      changed = true;
+    }
+  }
+
+  if (orbitChallenge.reached && !flight.orbitChallengeReached) {
+    flight.orbitChallengeReached = true;
+    flight.orbitStickerEarned = collectOrbitSticker(route, orbitChallenge);
+    flight.orbitMessage = flight.orbitStickerEarned
+      ? `高空挑戰達成，已收藏 ${routeCodeLabel(route)} 的 ${orbitChallenge.challenge.label} 貼紙。`
+      : `高空挑戰達成：${orbitChallenge.challenge.label} ${orbitChallenge.challenge.targetKm} km。`;
+    flight.orbitMessageTimer = 5.2;
+    flight.orbitPulse = 1;
+    playSfx(flight.orbitStickerEarned ? "sticker" : "perfect");
+    changed = true;
+  }
+
+  if (changed) {
+    updateHud();
+  }
+}
+
+function orbitHudLabel(flight, route) {
+  const vehicleLabel = flight.vehicleBadge || flight.vehicleName || ACTIVE_VEHICLE.badge || ACTIVE_VEHICLE.label;
+  const orbitProfile = spaceAltitudeProfile(flight);
+  const orbitChallenge = orbitChallengeStatus(route, flight);
+  if (flight.orbitMessageTimer > 0.02 && flight.orbitMessage) {
+    return flight.orbitMessage;
+  }
+  if (orbitChallenge.reached) {
+    return `高空貼紙已解鎖：${orbitChallenge.challenge.label} ${orbitChallenge.challenge.targetKm} km。`;
+  }
+  if (orbitProfile.zone === "leo" || orbitProfile.zone === "iss") {
+    return `${orbitProfile.label} · 最高高度離貼紙目標還差 ${Math.max(0, Math.round(orbitChallenge.peakRemainingKm))} km。`;
+  }
+  if (orbitProfile.zone === "suborbital") {
+    return `卡門線外側 · 離 ${orbitChallenge.challenge.label} ${orbitChallenge.challenge.targetKm} km 還差 ${Math.max(0, Math.round(orbitChallenge.currentRemainingKm))} km。`;
+  }
+  if (orbitProfile.zone === "upper-atmosphere") {
+    return `高層大氣轉場中 · 目標 ${orbitChallenge.challenge.targetKm} km。`;
+  }
+  return `${vehicleLabel} 巡航中 · 高空貼紙目標 ${orbitChallenge.challenge.label} ${orbitChallenge.challenge.targetKm} km。`;
 }
 
 function updateHud() {
@@ -2938,46 +3464,49 @@ function updateHud() {
   const route = ROUTES[flight.routeIndex];
   const progress = routeProgress(flight);
   const ghostState = ghostChaseState(flight);
+  const altitudeInfo = altitudeDisplayState(flight);
   hudDistance.textContent = `${Math.floor(progress * 100)}%`;
   hudHealth.textContent = `${Math.max(0, currentFuelPercent(flight)).toFixed(0)}%`;
-  hudFuel.textContent = `${Math.round(flight.speed)}`;
-  hudScore.textContent = `${flight.stars}`;
+  if (hudSpeedLabel) {
+    hudSpeedLabel.textContent = "速度";
+  }
+  if (hudAltitudeLabel) {
+    hudAltitudeLabel.textContent = altitudeInfo.label;
+  }
+  hudFuel.textContent = formatSpeedLabel(flight.speed);
+  hudScore.textContent = altitudeInfo.value;
   hudPhase.textContent = phaseLabel(flight);
   hudSystems.textContent = flightSystemsLabel(flight);
   hudGhost.textContent = ghostState.label;
+  if (hudOrbit) {
+    hudOrbit.textContent = orbitHudLabel(flight, route);
+    hudOrbit.classList.toggle("hud-orbit-active", flight.orbitMessageTimer > 0.02 || flight.orbitPulse > 0.02);
+  }
   hudMission.textContent = missionProgressLabel(flight, route);
   renderDebugPanel();
 }
 
-function evaluateMission(flight, route) {
+function evaluateMission(flight, route, reason) {
   const failed = [];
-  if (flight.stars < route.mission.stars) {
-    failed.push(`星星 ${flight.stars}/${route.mission.stars}`);
+  const orbitChallenge = orbitChallengeStatus(route, flight);
+  if (reason !== "arrived") {
+    failed.push(`未安全抵達 ${AIRPORTS[route.to].code}`);
   }
-  if (flight.drafts < route.mission.drafts) {
-    failed.push(`風流 ${flight.drafts}/${route.mission.drafts}`);
+  if (reason === "arrived" && orbitChallenge.challenge && !orbitChallenge.reached) {
+    failed.push(`未達 ${orbitChallenge.challenge.label} ${orbitChallenge.challenge.targetKm} km`);
   }
   return {
     success: failed.length === 0,
     failed,
-    stars: flight.stars,
-    drafts: flight.drafts,
+    orbitChallenge,
   };
 }
 
 function updateBestRun(routeId, flight) {
-  const current = state.bestRuns[routeId] || { time: 0, stars: 0 };
+  const current = state.bestRuns[routeId] || { time: 0 };
   if (current.time === 0 || flight.elapsed < current.time) {
     state.bestRuns[routeId] = {
       time: Number(flight.elapsed.toFixed(1)),
-      stars: Math.max(current.stars || 0, flight.stars),
-    };
-    return;
-  }
-  if (flight.stars > (current.stars || 0)) {
-    state.bestRuns[routeId] = {
-      time: current.time,
-      stars: flight.stars,
     };
   }
 }
@@ -2989,7 +3518,7 @@ function finishFlight(reason) {
   }
   const route = ROUTES[flight.routeIndex];
   const arrived = reason === "arrived";
-  const mission = evaluateMission(flight, route);
+  const mission = evaluateMission(flight, route, reason);
   const activeGhostSlot = getGhostSlot(route.id);
   const previousGhost = getGhostRun(route.id);
 
@@ -3015,8 +3544,10 @@ function finishFlight(reason) {
 
   const title = arrived ? `已抵達 ${AIRPORTS[route.to].code}` : "航班未完成";
   const summary = resultReasonSummary(reason, flight, route);
+  const peakOrbitProfile = spaceAltitudeProfile(flight, flight.peakAltitude || flight.altitude);
+  const orbitChallenge = mission.orbitChallenge;
   const body = arrived
-    ? `${routeCodeLabel(route)} · 飛行 ${flight.elapsed.toFixed(1)} 秒 · 燃油 ${Math.round(currentFuelPercent(flight))}% · 落地評價 ${flight.touchdownRating || "已完成"}`
+    ? `${routeCodeLabel(route)} · ${flight.vehicleBadge || flight.vehicleName || ACTIVE_VEHICLE.badge} · 飛行 ${flight.elapsed.toFixed(1)} 秒 · 燃油 ${Math.round(currentFuelPercent(flight))}% · 最高高度 ${formatAltitudeValue(peakOrbitProfile.altitudeMeters, true)} · 落地評價 ${flight.touchdownRating || "已完成"}`
     : `${routeCodeLabel(route)} · ${summary}`;
   const stats = [
     {
@@ -3025,9 +3556,16 @@ function finishFlight(reason) {
       meta: routeNameLabel(route),
     },
     {
+      label: "載具",
+      value: flight.vehicleBadge || flight.vehicleName || ACTIVE_VEHICLE.badge,
+      meta: flight.vehicleBlurb || ACTIVE_VEHICLE.blurb,
+    },
+    {
       label: "飛行時間",
       value: `${flight.elapsed.toFixed(1)} 秒`,
-      meta: arrived ? "本次完整航班" : "本次嘗試紀錄",
+      meta: arrived
+        ? `本次完整航班 · 該航線預估 ${route.estimatedGameMinutes?.toFixed(1) || "--"} 分鐘`
+        : `本次嘗試紀錄 · 真實航班約 ${formatMinutesLabel(route.estimatedRealMinutes)}`,
     },
     {
       label: "燃油",
@@ -3035,15 +3573,28 @@ function finishFlight(reason) {
       meta: `${Math.round(flight.fuel)} / ${Math.round(flight.maxFuel)}`,
     },
     {
-      label: "收集",
-      value: `${flight.stars} 星`,
-      meta: `風流 ${flight.drafts} 道`,
+      label: "最高高度",
+      value: formatAltitudeValue(peakOrbitProfile.altitudeMeters, true),
+      meta: peakOrbitProfile.crossedOrbit
+        ? `${peakOrbitProfile.label} · 已超過 ${SPACE_REFERENCE.lowEarthOrbitStartKm} km`
+        : peakOrbitProfile.crossedKarman
+          ? `${peakOrbitProfile.label} · 已超過 ${SPACE_REFERENCE.karmanLineKm} km`
+          : `${peakOrbitProfile.label} · 尚未達卡門線`,
+    },
+    {
+      label: "高空目標",
+      value: orbitChallenge.challenge ? `${orbitChallenge.challenge.targetKm} km` : "--",
+      meta: orbitChallenge.challenge
+        ? orbitChallenge.reached
+          ? `${orbitChallenge.challenge.label} · 已完成`
+          : `${orbitChallenge.challenge.label} · 還差 ${Math.max(0, Math.round(orbitChallenge.peakRemainingKm))} km`
+        : "無",
     },
     flight.touchdownRating
       ? {
           label: "接地",
           value: flight.touchdownRating,
-          meta: `速度 ${Math.round(flight.touchdownSpeed)} · 下降率 ${Math.round(flight.touchdownSinkRate)}`,
+          meta: `接地速度 ${formatSpeedLabel(flight.touchdownSpeed)} · 下沉 ${displaySinkRateMs(flight.touchdownSinkRate).toFixed(1)} m/s`,
         }
       : {
           label: "狀態",
@@ -3052,9 +3603,18 @@ function finishFlight(reason) {
         },
   ];
   const notes = [
-    mission.success
-      ? `今日任務完成：星星 ${flight.stars}/${route.mission.stars} · 風流 ${flight.drafts}/${route.mission.drafts}`
-      : `今日任務未完成：${mission.failed.join("、")}`,
+    `本次載具：${flight.vehicleBadge || flight.vehicleName || ACTIVE_VEHICLE.badge} · ${flight.vehicleBlurb || ACTIVE_VEHICLE.blurb}`,
+    arrived
+      ? mission.success
+        ? `今日航班完成：已從 ${AIRPORTS[route.from].code} 飛抵 ${AIRPORTS[route.to].code}`
+        : `今日航班已完成，但高空挑戰還沒拿下：${mission.failed.join("、")}`
+      : `今日航班未完成：${mission.failed.join("、")}`,
+    arrived && orbitChallenge.challenge
+      ? orbitChallenge.reached
+        ? `高空挑戰完成：${orbitChallenge.challenge.label} ${orbitChallenge.challenge.targetKm} km 已達成`
+        : `高空挑戰未完成：最高只到 ${peakOrbitProfile.altitudeKm.toFixed(1)} km，距 ${orbitChallenge.challenge.targetKm} km 還差 ${Math.max(0, Math.round(orbitChallenge.peakRemainingKm))} km`
+      : "",
+    flight.orbitStickerEarned ? `新貼紙入袋：${orbitChallenge.challenge.label} · 收藏進度 ${stickerCount()} / ${ROUTES.length}` : "",
     flight.hadEngineOut ? "途中曾經發生引擎熄火" : "",
     ghostRaceMessage,
     ghostMessage,
@@ -3080,6 +3640,16 @@ function finishFlight(reason) {
   renderResultStats(stats);
   renderResultNotes(notes);
   renderContinuePanel(continueSuggestion, flight.routeIndex);
+  setScreen("result");
+  renderResultDecor({
+    arrived,
+    mission,
+    flight,
+    route,
+    reason,
+    ghostRaceMessage,
+    unlockMessage,
+  });
 
   state.flight = null;
   state.input.up = false;
@@ -3087,7 +3657,6 @@ function finishFlight(reason) {
   state.input.left = false;
   state.input.right = false;
   state.input.airbrake = false;
-  setScreen("result");
 }
 
 function tick(now) {
@@ -3107,6 +3676,7 @@ function tick(now) {
     resizeCanvas(gameCanvas);
     updateFlight(dt);
     if (state.screen === "flight") {
+      updateOrbitFeedback(state.flight, ROUTES[state.flight.routeIndex], dt);
       recordGhostSample(state.flight);
       drawFlight();
     }
@@ -3119,10 +3689,11 @@ function resetProgress() {
   state.unlockedRoute = 0;
   state.bestRuns = {};
   state.ghostRuns = {};
+  state.stickerCollection = {};
   localStorage.removeItem(STORAGE_UNLOCK_KEY);
   localStorage.removeItem(STORAGE_BEST_KEY);
   localStorage.removeItem(STORAGE_GHOSTS_KEY);
-  localStorage.removeItem("tiny-airplanes.hangar");
+  localStorage.removeItem(STORAGE_STICKERS_KEY);
   selectRoute(0);
   setScreen("map");
 }

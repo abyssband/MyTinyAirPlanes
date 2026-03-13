@@ -1,6 +1,7 @@
 export function createFlightRuntime(deps) {
   const {
     ROUTES,
+    activeVehicle,
     gameCanvas,
     state,
     clamp,
@@ -15,6 +16,7 @@ export function createFlightRuntime(deps) {
     currentStallSpeed,
     landingAssistState,
     updateFlightSystems,
+    spaceVisualRatio,
   } = deps;
 
   const ALTITUDE_ROUTE_DEFS = [
@@ -22,7 +24,7 @@ export function createFlightRuntime(deps) {
       id: "low",
       label: "低空",
       title: "低空星線",
-      reward: "星星密集",
+      reward: "貼海速度感",
       risk: "鳥群多，容錯低",
       color: "rgba(255, 214, 132, 0.9)",
       centerBase: 156,
@@ -38,8 +40,8 @@ export function createFlightRuntime(deps) {
       id: "mid",
       label: "中空",
       title: "中空穩定帶",
-      reward: "風流最穩",
-      risk: "報酬平均",
+      reward: "姿態最好控",
+      risk: "速度最平均",
       color: "rgba(126, 222, 255, 0.9)",
       centerBase: 392,
       centerScale: 14,
@@ -77,7 +79,7 @@ export function createFlightRuntime(deps) {
   }
 
   function spaceAltitudeRatio(flight) {
-    return clamp((flight.cameraAltitude - 520) / 1100, 0, 1);
+    return spaceVisualRatio ? spaceVisualRatio(flight) : clamp((flight.cameraAltitude - 520) / 1100, 0, 1);
   }
 
   function horizonCurveOffset(screenX, spaceRatio) {
@@ -131,6 +133,13 @@ export function createFlightRuntime(deps) {
     return clamp((flight.worldX - start) / Math.max(1, end - start), 0, 1);
   }
 
+  function setFlightPhase(flight, phase) {
+    if (flight.phase !== phase) {
+      flight.phase = phase;
+      flight.phaseTime = 0;
+    }
+  }
+
   function runwayDeckAltitudeAt(flight, worldX, centerX) {
     return Math.abs(worldX - centerX) <= flight.runwayHalf ? flight.runwayAltitude : -Infinity;
   }
@@ -146,15 +155,22 @@ export function createFlightRuntime(deps) {
     return min + flight.rng() * (max - min);
   }
 
+  function nextCloudAltitude(rng) {
+    if (rng() < 0.68) {
+      return 540 + rng() * 360;
+    }
+    return 220 + rng() * 140;
+  }
+
   function createClouds(count, palette, rng) {
     const clouds = [];
     for (let i = 0; i < count; i += 1) {
       clouds.push({
         x: -gameCanvas.width * 0.35 + rng() * (gameCanvas.width * 2.15),
-        altitude: 140 + rng() * 780,
-        r: 24 + rng() * 34,
-        drift: -8 + rng() * 18,
-        alpha: 0.36 + rng() * 0.34,
+        altitude: nextCloudAltitude(rng),
+        r: 22 + rng() * 26,
+        drift: -6 + rng() * 12,
+        alpha: 0.18 + rng() * 0.18,
         mood: rng() * Math.PI * 2,
         tint: palette.cloud,
       });
@@ -171,14 +187,14 @@ export function createFlightRuntime(deps) {
 
   function createFlightState(routeIndex) {
     const route = ROUTES[routeIndex];
+    const vehicle = activeVehicle;
     const effects = {
-      speedMultiplier: 1,
-      launchBoost: 1,
-      glideLift: 1,
-      draftBoost: 1,
-      crashResistance: 1,
-      sunsetPreservation: 1,
-      sunReserve: 78,
+      speedMultiplier: vehicle.effects?.speedMultiplier || 1,
+      launchBoost: vehicle.effects?.launchBoost || 1,
+      glideLift: vehicle.effects?.glideLift || 1,
+      crashResistance: vehicle.effects?.crashResistance || 1,
+      sunsetPreservation: vehicle.effects?.sunsetPreservation || 1,
+      sunReserve: vehicle.effects?.sunReserve || 78,
     };
     const seed = routeIndex * 97 + 17;
     const rng = createSeededRng(seed);
@@ -187,8 +203,9 @@ export function createFlightRuntime(deps) {
     const runwayHalf = 1500;
     const planeBottomOffset = 18;
     const altitude = runwayAltitude + planeBottomOffset;
-    const arrivalAirportX = route.distance * 5.6 + 5200 + route.difficulty * 420;
-    const clouds = createClouds(15, route.palette, rng);
+    const arrivalAirportX = route.distance + 5200 + route.difficulty * 420;
+    const clouds = createClouds(9, route.palette, rng);
+    const baseFuel = (120 + route.difficulty * 18 + route.estimatedGameMinutes * 60 * 0.92) * (vehicle.fuelCapacityMultiplier || 1);
     return {
       routeIndex,
       seed,
@@ -203,8 +220,8 @@ export function createFlightRuntime(deps) {
       throttle: 0.82,
       throttleTarget: 0.82,
       minSpeed: 0,
-      minAirSpeed: 980,
-      maxSpeed: 5600 * effects.speedMultiplier,
+      minAirSpeed: vehicle.minAirSpeed,
+      maxSpeed: vehicle.maxSpeed * effects.speedMultiplier,
       altitude,
       cameraAltitude: altitude + gameCanvas.height * 0.12,
       vy: 0,
@@ -214,36 +231,36 @@ export function createFlightRuntime(deps) {
       elapsed: 0,
       maxSun: effects.sunReserve,
       sun: effects.sunReserve,
-      maxFuel: 118 + route.difficulty * 9 + route.distance / 240,
-      fuel: 118 + route.difficulty * 9 + route.distance / 240,
+      maxFuel: baseFuel,
+      fuel: baseFuel,
+      peakAltitude: altitude,
       engineOut: false,
       hadEngineOut: false,
       lowFuelWarning: false,
-      stars: 0,
-      drafts: 0,
       hits: 0,
       phase: "takeoff_roll",
+      phaseTime: 0,
       grounded: true,
       runwayState: "departure",
       runwayAltitude,
       runwayHalf,
       islandHalf: 1880,
       planeBottomOffset,
-      rotateSpeed: 1180 * effects.launchBoost,
-      takeoffSpeed: 1320 * effects.launchBoost,
-      stallSpeed: 860,
+      rotateSpeed: vehicle.rotateSpeed * effects.launchBoost,
+      takeoffSpeed: vehicle.takeoffSpeed * effects.launchBoost,
+      stallSpeed: vehicle.stallSpeed,
       landingBounceSink: 190,
       landingCrashSink: 320,
-      landingMaxTouchdownSpeed: 1680,
+      landingMaxTouchdownSpeed: vehicle.landingMaxTouchdownSpeed,
       landingSafePitch: 0.24,
       landingCrashPitch: 0.34,
       flareStartDistance: 760,
       flareHeight: 144,
       gearDeployDistance: 1880,
       rolloutStopSpeed: 22,
-      takeoffAccel: 940 * effects.launchBoost,
-      rollBrake: 360,
-      landingBrakeBonus: 280,
+      takeoffAccel: vehicle.takeoffAccel * effects.launchBoost,
+      rollBrake: vehicle.rollBrake,
+      landingBrakeBonus: vehicle.landingBrakeBonus,
       flaps: 1,
       airbrakeDrag: 0,
       flapLift: 0,
@@ -255,6 +272,9 @@ export function createFlightRuntime(deps) {
       touchdownSinkRate: 0,
       spoilers: 0,
       touchdownFlash: 0,
+      takeoffFlash: 0,
+      touchdownBloom: 0,
+      rolloutRibbon: 0,
       rolloutSmokeCooldown: 0,
       touchdownFx: [],
       runwayMarks: [],
@@ -268,6 +288,21 @@ export function createFlightRuntime(deps) {
       clouds,
       initialCloudSignature: cloudSignature(clouds),
       spawnCursor: runwayHalf + 320,
+      vehicleId: vehicle.id,
+      vehicleName: vehicle.label,
+      vehicleBadge: vehicle.badge,
+      vehicleStyle: vehicle.style,
+      vehicleAccent: vehicle.accent,
+      vehicleStripe: vehicle.stripe,
+      vehicleCanopy: vehicle.canopy,
+      vehicleBlurb: vehicle.blurb,
+      performanceProfile: vehicle.profileTag,
+      orbitCueZone: "atmosphere",
+      orbitMessage: "",
+      orbitMessageTimer: 0,
+      orbitPulse: 0,
+      orbitChallengeReached: false,
+      orbitStickerEarned: false,
       effects,
     };
   }
@@ -315,6 +350,9 @@ export function createFlightRuntime(deps) {
 
   function updateLandingEffects(flight, dt) {
     flight.touchdownFlash = Math.max(0, flight.touchdownFlash - dt * 1.9);
+    flight.takeoffFlash = Math.max(0, flight.takeoffFlash - dt * 1.3);
+    flight.touchdownBloom = Math.max(0, flight.touchdownBloom - dt * 1.15);
+    flight.rolloutRibbon = Math.max(0, flight.rolloutRibbon - dt * 0.42);
     flight.spoilers = Math.max(0, flight.spoilers - dt * 0.5);
     flight.touchdownFx = flight.touchdownFx.filter((effect) => {
       effect.life -= dt;
@@ -360,20 +398,6 @@ export function createFlightRuntime(deps) {
     };
   }
 
-  function pushStarChain(flight, x, altitude, count, bandId) {
-    for (let i = 0; i < count; i += 1) {
-      const spread = (i - (count - 1) * 0.5) * 30;
-      flight.actors.push({
-        type: "star",
-        band: bandId,
-        x: x + spread,
-        altitude: Math.max(70, altitude - Math.abs(i - (count - 1) * 0.5) * 12),
-        r: 11,
-        collected: false,
-      });
-    }
-  }
-
   function spawnBandActors(flight, slot, x, band) {
     const route = ROUTES[flight.routeIndex];
     const lane = Math.max(
@@ -382,13 +406,8 @@ export function createFlightRuntime(deps) {
     );
     const roll = hash1(slot * 9.3 + band.centerBase * 0.001, flight.seed + 31);
     const variant = hash1(slot * 3.7 + band.centerScale, flight.seed + 47);
-
-      if (band.id === "low") {
-      if (roll < 0.5) {
-        pushStarChain(flight, x, lane, 3 + Math.floor(variant * 3), band.id);
-        return;
-      }
-      if (roll < 0.66) {
+    if (band.id === "low") {
+      if (roll < 0.34) {
         flight.actors.push({
           type: "bird",
           band: band.id,
@@ -401,75 +420,67 @@ export function createFlightRuntime(deps) {
         });
         return;
       }
-      if (roll < 0.82) {
+      if (roll < 0.52) {
         flight.actors.push({
-          type: "fuel",
+          type: "storm",
           band: band.id,
           x,
           altitude: lane,
-          r: 13,
-          amount: 14 + variant * 4,
+          r: 20 + variant * 8,
+          phase: hash1(slot * 4.8, flight.seed + 51) * Math.PI * 2,
+          damage: 8 + route.difficulty * 1.7,
           collected: false,
         });
         return;
       }
-      flight.actors.push({
-        type: "draft",
-        band: band.id,
-        x,
-        altitude: lane,
-        rx: 48,
-        ry: 58,
-        strength: 0.84 + variant * 0.18,
-        collected: false,
-      });
       return;
     }
 
     if (band.id === "mid") {
+      if (roll < 0.22) {
+        flight.actors.push({
+          type: "bird",
+          band: band.id,
+          x,
+          altitude: lane,
+          r: 18 + variant * 4,
+          phase: hash1(slot * 6.2, flight.seed + 53) * Math.PI * 2,
+          damage: 8 + route.difficulty * 1.4,
+          collected: false,
+        });
+        return;
+      }
       if (roll < 0.38) {
         flight.actors.push({
-          type: "draft",
+          type: "storm",
           band: band.id,
           x,
           altitude: lane,
-          rx: 60,
-          ry: 80,
-          strength: 1 + variant * 0.28,
+          r: 24 + variant * 10,
+          phase: hash1(slot * 5.4, flight.seed + 41) * Math.PI * 2,
+          damage: 10 + route.difficulty * 1.8,
           collected: false,
         });
         return;
       }
-      if (roll < 0.58) {
+      if (roll < 0.54) {
         flight.actors.push({
-          type: "fuel",
+          type: "jetstream",
           band: band.id,
           x,
           altitude: lane,
-          r: 14,
-          amount: 16 + variant * 5,
+          rx: 72,
+          ry: 28,
+          speedBonus: 96 + variant * 22,
+          lift: 10 + variant * 6,
           collected: false,
         });
         return;
       }
-      if (roll < 0.8) {
-        pushStarChain(flight, x, lane, 2 + Math.floor(variant * 2), band.id);
-        return;
-      }
-      flight.actors.push({
-        type: variant > 0.5 ? "storm" : "bird",
-        band: band.id,
-        x,
-        altitude: lane,
-        r: variant > 0.5 ? 26 + variant * 10 : 18 + variant * 4,
-        phase: hash1(slot * 6.2, flight.seed + 53) * Math.PI * 2,
-        damage: variant > 0.5 ? 11 + route.difficulty * 2 : 8 + route.difficulty * 1.5,
-        collected: false,
-      });
       return;
     }
 
-    if (roll < 0.36) {
+    if (roll < 0.28) {
       flight.actors.push({
         type: "jetstream",
         band: band.id,
@@ -485,18 +496,6 @@ export function createFlightRuntime(deps) {
     }
     if (roll < 0.54) {
       flight.actors.push({
-        type: "fuel",
-        band: band.id,
-        x,
-        altitude: lane,
-        r: 12,
-        amount: 12 + variant * 4,
-        collected: false,
-      });
-      return;
-    }
-    if (roll < 0.78) {
-      flight.actors.push({
         type: "storm",
         band: band.id,
         x,
@@ -508,19 +507,18 @@ export function createFlightRuntime(deps) {
       });
       return;
     }
-    pushStarChain(flight, x, lane, 2 + Math.floor(variant * 2), band.id);
   }
 
   function ensureActorsAhead(flight) {
-    const horizon = Math.min(arrivalRunwayStart(flight) - 220, flight.worldX + gameCanvas.width + 2600);
+    const horizon = Math.min(arrivalRunwayStart(flight) - 260, flight.worldX + gameCanvas.width + 2100);
     while (flight.spawnCursor < horizon) {
-      const slot = Math.floor(flight.spawnCursor / 620);
-      const x = flight.spawnCursor + 220 + hash1(slot * 4.7, flight.seed) * 180;
+      const slot = Math.floor(flight.spawnCursor / 760);
+      const x = flight.spawnCursor + 260 + hash1(slot * 4.7, flight.seed) * 140;
       ALTITUDE_ROUTE_DEFS.forEach((band, index) => {
-        const laneX = x + (index - 1) * 22 + (hash1(slot * (6.1 + index), flight.seed + 91 + index * 7) - 0.5) * 26;
+        const laneX = x + (index - 1) * 18 + (hash1(slot * (6.1 + index), flight.seed + 91 + index * 7) - 0.5) * 18;
         spawnBandActors(flight, slot * 3 + index, laneX, band);
       });
-      flight.spawnCursor = x + 380 + hash1(slot * 8.2, flight.seed + 73) * 260;
+      flight.spawnCursor = x + 520 + hash1(slot * 8.2, flight.seed + 73) * 360;
     }
     flight.actors = flight.actors.filter((actor) => actor.x > flight.worldX - 380 && !actor.collected);
   }
@@ -531,43 +529,13 @@ export function createFlightRuntime(deps) {
       if (actor.collected) {
         return;
       }
-      if (actor.type === "star") {
-        if (Math.hypot(actor.x - planeWorldX, actor.altitude - flight.altitude) <= actor.r + 18) {
-          actor.collected = true;
-          flight.stars += 1;
-          flight.sun = Math.min(flight.maxSun, flight.sun + 1.1);
-          flight.speed = Math.min(flight.maxSpeed, flight.speed + 6);
-          playSfx("star");
-        }
-        return;
-      }
-      if (actor.type === "draft") {
-        if (pointInEllipse(planeWorldX, flight.altitude, actor.x, actor.altitude, actor.rx, actor.ry)) {
-          actor.collected = true;
-          flight.drafts += 1;
-          flight.vy += 150 * actor.strength * flight.effects.draftBoost;
-          flight.speed = Math.min(flight.maxSpeed, flight.speed + 32 * actor.strength);
-          flight.sun = Math.min(flight.maxSun, flight.sun + 4.2);
-          playSfx("draft");
-        }
-        return;
-      }
-      if (actor.type === "fuel") {
-        if (Math.hypot(actor.x - planeWorldX, actor.altitude - flight.altitude) <= actor.r + 18) {
-          actor.collected = true;
-          flight.fuel = Math.min(flight.maxFuel, flight.fuel + actor.amount);
-          flight.engineOut = false;
-          playSfx("fuel");
-        }
-        return;
-      }
       if (actor.type === "jetstream") {
         if (pointInEllipse(planeWorldX, flight.altitude, actor.x, actor.altitude, actor.rx, actor.ry)) {
           actor.collected = true;
           flight.speed = Math.min(flight.maxSpeed * 1.18, flight.speed + actor.speedBonus);
           flight.vy += actor.lift;
           flight.sun = Math.min(flight.maxSun, flight.sun + 2.4);
-          playSfx("draft");
+          playSfx("jetstream");
         }
         return;
       }
@@ -591,8 +559,8 @@ export function createFlightRuntime(deps) {
       cloud.mood += dt * 1.2;
       if (cloud.x < leftBound - 280) {
         cloud.x = rightBound + nextFlightRandom(flight, 100, 320);
-        cloud.altitude = nextFlightRandom(flight, 140, 920);
-        cloud.r = nextFlightRandom(flight, 24, 58);
+        cloud.altitude = nextCloudAltitude(flight.rng);
+        cloud.r = nextFlightRandom(flight, 22, 48);
         cloud.tint = route.palette.cloud;
       }
     });
@@ -602,7 +570,7 @@ export function createFlightRuntime(deps) {
     const touchdownSpeed = flight.speed;
     flight.grounded = true;
     flight.runwayState = "arrival";
-    flight.phase = "landing_roll";
+    setFlightPhase(flight, "landing_roll");
     flight.throttleTarget = flight.engineOut ? 0.18 : 0.22;
     flight.altitude = flight.runwayAltitude + flight.planeBottomOffset;
     flight.vy = 0;
@@ -611,6 +579,8 @@ export function createFlightRuntime(deps) {
     flight.touchdownRating = getTouchdownRating(flight, sinkRate, touchdownSpeed);
     flight.spoilers = 1;
     flight.touchdownFlash = 0.34;
+    flight.touchdownBloom = 1;
+    flight.rolloutRibbon = 1;
     flight.groundBounce = clamp(sinkRate * 0.05, 0, 10);
     flight.groundBounceVelocity = -sinkRate * 0.18;
     flight.speed *= clamp(0.97 - sinkRate / 1400, 0.82, 0.97);
@@ -619,6 +589,7 @@ export function createFlightRuntime(deps) {
     addRunwayMark(flight, flight.worldX - 12, 26 + sinkRate * 0.08, 0.2 + sinkRate * 0.0005);
     emitTouchdownEffects(flight, sinkRate, "touchdown");
     playSfx("touchdown");
+    playSfx("rollout");
   }
 
   function handleArrivalTouchdown(flight) {
@@ -664,9 +635,10 @@ export function createFlightRuntime(deps) {
     if (state.input.up && flight.speed >= currentTakeoffSpeed(flight)) {
       flight.grounded = false;
       flight.runwayState = null;
-      flight.phase = "climbout";
+      setFlightPhase(flight, "climbout");
       flight.altitude += 2;
       flight.vy = 120 + Math.max(0, flight.speed - currentTakeoffSpeed(flight)) * 0.12 + flight.flapLift * 18;
+      flight.takeoffFlash = 1;
       playSfx("perfect");
       return;
     }
@@ -678,11 +650,11 @@ export function createFlightRuntime(deps) {
   function updateAirborneFlight(flight, dt) {
     const progress = routeProgress(flight);
     if (flight.phase === "climbout" && progress > 0.06) {
-      flight.phase = "cruise";
+      setFlightPhase(flight, "cruise");
     } else if (flight.phase !== "climbout" && progress >= flight.approachStartProgress) {
-      flight.phase = "approach";
+      setFlightPhase(flight, "approach");
     } else if (flight.phase !== "climbout" && progress >= flight.descentStartProgress && flight.phase !== "approach") {
-      flight.phase = "descent";
+      setFlightPhase(flight, "descent");
     }
 
     const landingAssist = landingAssistState(flight);
@@ -784,9 +756,11 @@ export function createFlightRuntime(deps) {
     const route = ROUTES[flight.routeIndex];
 
     flight.elapsed += dt;
+    flight.phaseTime += dt;
     flight.propeller += dt * (18 + flight.speed * 0.06);
     flight.shake = Math.max(0, flight.shake - dt * 1.8);
     flight.sun = Math.max(0, flight.sun - (route.sunsetDrain / flight.effects.sunsetPreservation) * dt);
+    flight.peakAltitude = Math.max(flight.peakAltitude || 0, flight.altitude);
 
     const fuelBand = getAltitudeBandState(flight);
     let fuelDrainRate = 0;

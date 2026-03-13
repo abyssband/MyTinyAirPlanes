@@ -58,7 +58,7 @@ async function main() {
     assert(snapshot.flight?.engineOut === true, "預期燃油耗盡後引擎應熄火");
     logStep("燃油耗盡後，飛機會進入 engine-out 滑翔");
 
-    logStep("生成一個燃油補給，驗證補到油後引擎能恢復");
+    logStep("塞入一個舊的 fuel actor，驗證舊型別現在會被忽略");
     await page.evaluate(() => {
       const { flight } = window.__tinyAirplanes.getSnapshot();
       window.__tinyAirplanes.patchFlight({
@@ -77,15 +77,26 @@ async function main() {
       });
     });
 
+    await page.waitForTimeout(600);
+    snapshot = await getSnapshot(page);
+    assert(snapshot.flight?.fuel === 0, `預期舊的 fuel actor 不再補油，實際 fuel=${snapshot.flight?.fuel}`);
+    assert(snapshot.flight?.engineOut === true, "預期舊的 fuel actor 不再恢復引擎");
+    assert(snapshot.flight?.hadEngineOut === true, "預期 snapshot 應保留曾經熄火的紀錄");
+    logStep("舊的 fuel actor 已被忽略，航路上不再保留這種舊收集型別");
+
+    await page.evaluate(() => {
+      const { flight } = window.__tinyAirplanes.getSnapshot();
+      window.__tinyAirplanes.patchFlight({
+        fuel: 24,
+        engineOut: false,
+      });
+    });
     await page.waitForFunction(() => {
       const flight = window.__tinyAirplanes.getSnapshot().flight;
       return Boolean(flight && flight.engineOut === false && flight.fuel > 0);
     }, null, { timeout: 4000 });
     snapshot = await getSnapshot(page);
-    assert(snapshot.flight?.fuel > 0, `預期補到燃油後 fuel 應大於 0，實際 ${snapshot.flight?.fuel}`);
-    assert(snapshot.flight?.engineOut === false, "預期補到燃油後引擎應恢復");
-    assert(snapshot.flight?.hadEngineOut === true, "預期 snapshot 應保留曾經熄火的紀錄");
-    logStep(`燃油補給生效，燃油回到 ${round(snapshot.flight.fuel)} / ${round(snapshot.flight.maxFuel)}`);
+    logStep(`手動恢復燃油後，燃油回到 ${round(snapshot.flight.fuel)} / ${round(snapshot.flight.maxFuel)}`);
 
     console.log("");
     console.log("Fuel system test passed");

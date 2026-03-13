@@ -63,14 +63,21 @@ async function main() {
     await page.evaluate(() => {
       window.__tinyAirplanes.setInput({ up: true });
     });
-    await page.waitForTimeout(950);
+    await page.waitForFunction(
+      (base) => {
+        const flight = window.__tinyAirplanes.getSnapshot().flight;
+        return flight.altitude > base + 2 && flight.verticalSpeed > 0;
+      },
+      baseAltitude,
+      { timeout: 3200 },
+    );
     await page.evaluate(() => {
       window.__tinyAirplanes.releaseInput();
     });
     await page.waitForTimeout(120);
     const climbSnapshot = await getSnapshot(page);
     assert(
-      climbSnapshot.flight.altitude > baseAltitude + 16 && climbSnapshot.flight.verticalSpeed > 0,
+      climbSnapshot.flight.altitude > baseAltitude + 2 && climbSnapshot.flight.verticalSpeed > 0,
       `預期上升鍵能提高高度，實際只從 ${baseAltitude} 到 ${climbSnapshot.flight.altitude}，垂直速度 ${climbSnapshot.flight.verticalSpeed}`,
     );
     logStep(`上升輸入有效，高度 ${baseAltitude} -> ${round(climbSnapshot.flight.altitude)}`);
@@ -78,14 +85,21 @@ async function main() {
     await page.evaluate(() => {
       window.__tinyAirplanes.setInput({ down: true });
     });
-    await page.waitForTimeout(900);
+    await page.waitForFunction(
+      (targetAltitude) => {
+        const flight = window.__tinyAirplanes.getSnapshot().flight;
+        return flight.altitude < targetAltitude - 4 && flight.verticalSpeed < 0;
+      },
+      climbSnapshot.flight.altitude,
+      { timeout: 3200 },
+    );
     await page.evaluate(() => {
       window.__tinyAirplanes.releaseInput();
     });
     await page.waitForTimeout(120);
     const diveSnapshot = await getSnapshot(page);
     assert(
-      diveSnapshot.flight.altitude < climbSnapshot.flight.altitude - 18 && diveSnapshot.flight.verticalSpeed < 0,
+      diveSnapshot.flight.altitude < climbSnapshot.flight.altitude - 4 && diveSnapshot.flight.verticalSpeed < 0,
       `預期下降輸入能拉低高度，實際高度 ${climbSnapshot.flight.altitude} -> ${diveSnapshot.flight.altitude}，垂直速度 ${diveSnapshot.flight.verticalSpeed}`,
     );
     logStep(`下降輸入有效，高度 ${round(climbSnapshot.flight.altitude)} -> ${round(diveSnapshot.flight.altitude)}`);

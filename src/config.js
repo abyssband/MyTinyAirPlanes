@@ -4,10 +4,109 @@ export const STORAGE_AUDIO_KEY = "tiny-airplanes.audio-enabled";
 export const STORAGE_DEBUG_KEY = "tiny-airplanes.debug-enabled";
 export const STORAGE_GHOSTS_KEY = "tiny-airplanes.ghost-runs";
 export const STORAGE_GHOST_ENABLED_KEY = "tiny-airplanes.ghost-enabled";
+export const STORAGE_STICKERS_KEY = "tiny-airplanes.orbit-stickers";
 export const STORAGE_SAVE_VERSION_KEY = "tiny-airplanes.save-version";
-export const CURRENT_SAVE_VERSION = 7;
+export const CURRENT_SAVE_VERSION = 9;
+export const SPACE_REFERENCE = {
+  visualStartKm: 24,
+  karmanLineKm: 100,
+  lowEarthOrbitStartKm: 160,
+  lowEarthOrbitMaxKm: 2000,
+  issMinKm: 370,
+  issMaxKm: 460,
+};
 
 const SEARCH_PARAMS = new URLSearchParams(window.location.search);
+export const VEHICLE_PROFILES = {
+  civilAirliner: {
+    id: "civilAirliner",
+    label: "一般民航機",
+    badge: "Bluebird 320",
+    profileTag: "civil-airliner",
+    style: "airliner",
+    blurb: "標準窄體民航機，起降節奏穩，巡航手感平均。",
+    accent: "#f39c72",
+    stripe: "#fff2ba",
+    canopy: "#79a0c8",
+    fuelCapacityMultiplier: 1,
+    minAirSpeed: 1180,
+    maxSpeed: 5050,
+    rotateSpeed: 1340,
+    takeoffSpeed: 1460,
+    stallSpeed: 980,
+    landingMaxTouchdownSpeed: 1520,
+    takeoffAccel: 900,
+    rollBrake: 360,
+    landingBrakeBonus: 280,
+    effects: {
+      speedMultiplier: 1,
+      launchBoost: 1,
+      glideLift: 1,
+      crashResistance: 1,
+      sunsetPreservation: 1,
+      sunReserve: 78,
+    },
+  },
+  spaceplanePrototype: {
+    id: "spaceplanePrototype",
+    label: "太空飛機原型",
+    badge: "Aurora S-1",
+    profileTag: "spaceplane",
+    style: "spaceplane",
+    blurb: "火箭輔助的太空飛機測試機，爬升更積極，高空速度保持更好。",
+    accent: "#8fc8ff",
+    stripe: "#ffe8c2",
+    canopy: "#9feaff",
+    fuelCapacityMultiplier: 1.28,
+    minAirSpeed: 1280,
+    maxSpeed: 7600,
+    rotateSpeed: 1480,
+    takeoffSpeed: 1600,
+    stallSpeed: 1020,
+    landingMaxTouchdownSpeed: 1680,
+    takeoffAccel: 1040,
+    rollBrake: 330,
+    landingBrakeBonus: 250,
+    effects: {
+      speedMultiplier: 1.08,
+      launchBoost: 1.08,
+      glideLift: 1.12,
+      crashResistance: 1.05,
+      sunsetPreservation: 1,
+      sunReserve: 78,
+    },
+  },
+  reusableShuttle: {
+    id: "reusableShuttle",
+    label: "可返回式穿梭機",
+    badge: "Orbiter R-7",
+    profileTag: "reusable-shuttle",
+    style: "shuttle",
+    blurb: "可返回式穿梭機，機身更重但滑翔效率高，適合長航段與高空回降。",
+    accent: "#edf3ff",
+    stripe: "#ffb36b",
+    canopy: "#223451",
+    fuelCapacityMultiplier: 1.36,
+    minAirSpeed: 1240,
+    maxSpeed: 7200,
+    rotateSpeed: 1500,
+    takeoffSpeed: 1640,
+    stallSpeed: 995,
+    landingMaxTouchdownSpeed: 1740,
+    takeoffAccel: 980,
+    rollBrake: 338,
+    landingBrakeBonus: 238,
+    effects: {
+      speedMultiplier: 1.05,
+      launchBoost: 1.03,
+      glideLift: 1.2,
+      crashResistance: 1.08,
+      sunsetPreservation: 1,
+      sunReserve: 78,
+    },
+  },
+};
+export const ACTIVE_VEHICLE_ID = VEHICLE_PROFILES[SEARCH_PARAMS.get("vehicle")] ? SEARCH_PARAMS.get("vehicle") : "reusableShuttle";
 export const FORCE_DEBUG = ["1", "true", "on"].includes((SEARCH_PARAMS.get("debug") || "").toLowerCase());
 export const FORCE_MUTE = ["1", "true", "on"].includes((SEARCH_PARAMS.get("mute") || "").toLowerCase());
 
@@ -372,27 +471,78 @@ const PALETTES = {
 };
 
 const ROUTE_CHAIN = [
-  { from: "YVR", to: "LAX", theme: "pacific", desc: "太平洋海岸線從森林一路鋪向暖陽海灣，是全球航線地圖的溫柔開場。" },
-  { from: "LAX", to: "MEX", theme: "sunbelt", desc: "加州暖流轉進墨西哥高原，雲層節奏開始更活潑。" },
-  { from: "MEX", to: "BOG", theme: "tropic", desc: "跨過中美洲與加勒比邊緣，氣流會在山海之間忽快忽慢。" },
-  { from: "BOG", to: "GRU", theme: "tropic", desc: "安地斯餘影退到身後，南美洲的大陸雲河開始變寬。" },
-  { from: "GRU", to: "LIS", theme: "atlantic", desc: "第一次真正的跨洋長程，夜色和耐心都會一起拉長。" },
-  { from: "LIS", to: "LHR", theme: "europe", desc: "大西洋霧光轉成歐洲晨色，節奏更像繁忙國際航路。" },
-  { from: "LHR", to: "FRA", theme: "europe", desc: "西歐樞紐之間的短程跳點，最適合練精準進場。" },
-  { from: "FRA", to: "IST", theme: "mediterranean", desc: "阿爾卑斯到博斯普魯斯的轉場，風層會更立體。" },
-  { from: "IST", to: "CAI", theme: "mediterranean", desc: "歐亞交界滑向尼羅河口，空氣開始帶點沙金色。" },
-  { from: "CAI", to: "JNB", theme: "africa", desc: "非洲長距離南下，視覺和航程都會慢慢沉進大片大陸尺度。" },
-  { from: "JNB", to: "DXB", theme: "desert", desc: "高原暮色接到沙漠夜航，是速度與穩定感的考驗。" },
-  { from: "DXB", to: "DEL", theme: "southasia", desc: "阿拉伯海與印度次大陸交會，熱流和高度帶選擇變得更重要。" },
-  { from: "DEL", to: "SIN", theme: "southasia", desc: "長程亞洲走廊從乾燥內陸一路轉進潮濕熱帶。" },
-  { from: "SIN", to: "HKG", theme: "southeastasia", desc: "東南亞雲塔一路延伸，低空補給和中空穩定帶都很有價值。" },
-  { from: "HKG", to: "TPE", theme: "eastasia", desc: "南海邊緣風場切得細碎，適合練快節奏的高度切換。" },
-  { from: "TPE", to: "ICN", theme: "eastasia", desc: "黑潮上空的海天視野很開，巡航和進場都要提早布局。" },
-  { from: "ICN", to: "HND", theme: "eastasia", desc: "東北亞樞紐短航段，節奏俐落，操作也更要求乾淨。" },
-  { from: "HND", to: "PVG", theme: "eastasia", desc: "東京灣飛向長江口，航線密度高，修正要早。" },
-  { from: "PVG", to: "SYD", theme: "oceania", desc: "真正的跨緯度長程，天空顏色會一路換場到南半球。" },
-  { from: "SYD", to: "AKL", theme: "oceania", desc: "穿過塔斯曼海，世界旅程在海風和跑道燈之間收尾。" },
+  { from: "YVR", to: "LAX", theme: "pacific", orbitTargetKm: 28, desc: "太平洋海岸線從森林一路鋪向暖陽海灣，是全球航線地圖的溫柔開場。" },
+  { from: "LAX", to: "MEX", theme: "sunbelt", orbitTargetKm: 36, desc: "加州暖流轉進墨西哥高原，雲層節奏開始更活潑。" },
+  { from: "MEX", to: "BOG", theme: "tropic", orbitTargetKm: 48, desc: "跨過中美洲與加勒比邊緣，氣流會在山海之間忽快忽慢。" },
+  { from: "BOG", to: "GRU", theme: "tropic", orbitTargetKm: 60, desc: "安地斯餘影退到身後，南美洲的大陸雲河開始變寬。" },
+  { from: "GRU", to: "LIS", theme: "atlantic", orbitTargetKm: 100, desc: "第一次真正的跨洋長程，夜色和耐心都會一起拉長。" },
+  { from: "LIS", to: "LHR", theme: "europe", orbitTargetKm: 32, desc: "大西洋霧光轉成歐洲晨色，節奏更像繁忙國際航路。" },
+  { from: "LHR", to: "FRA", theme: "europe", orbitTargetKm: 24, desc: "西歐樞紐之間的短程跳點，最適合練精準進場。" },
+  { from: "FRA", to: "IST", theme: "mediterranean", orbitTargetKm: 72, desc: "阿爾卑斯到博斯普魯斯的轉場，風層會更立體。" },
+  { from: "IST", to: "CAI", theme: "mediterranean", orbitTargetKm: 52, desc: "歐亞交界滑向尼羅河口，空氣開始帶點沙金色。" },
+  { from: "CAI", to: "JNB", theme: "africa", orbitTargetKm: 100, desc: "非洲長距離南下，視覺和航程都會慢慢沉進大片大陸尺度。" },
+  { from: "JNB", to: "DXB", theme: "desert", orbitTargetKm: 120, desc: "高原暮色接到沙漠夜航，是速度與穩定感的考驗。" },
+  { from: "DXB", to: "DEL", theme: "southasia", orbitTargetKm: 64, desc: "阿拉伯海與印度次大陸交會，熱流和高度帶選擇變得更重要。" },
+  { from: "DEL", to: "SIN", theme: "southasia", orbitTargetKm: 100, desc: "長程亞洲走廊從乾燥內陸一路轉進潮濕熱帶。" },
+  { from: "SIN", to: "HKG", theme: "southeastasia", orbitTargetKm: 72, desc: "東南亞雲塔一路延伸，低空與中空的切換會很頻繁。" },
+  { from: "HKG", to: "TPE", theme: "eastasia", orbitTargetKm: 40, desc: "南海邊緣風場切得細碎，適合練快節奏的高度切換。" },
+  { from: "TPE", to: "ICN", theme: "eastasia", orbitTargetKm: 60, desc: "黑潮上空的海天視野很開，巡航和進場都要提早布局。" },
+  { from: "ICN", to: "HND", theme: "eastasia", orbitTargetKm: 28, desc: "東北亞樞紐短航段，節奏俐落，操作也更要求乾淨。" },
+  { from: "HND", to: "PVG", theme: "eastasia", orbitTargetKm: 44, desc: "東京灣飛向長江口，航線密度高，修正要早。" },
+  { from: "PVG", to: "SYD", theme: "oceania", orbitTargetKm: 160, desc: "真正的跨緯度長程，天空顏色會一路換場到南半球。" },
+  { from: "SYD", to: "AKL", theme: "oceania", orbitTargetKm: 100, desc: "穿過塔斯曼海，世界旅程在海風和跑道燈之間收尾。" },
 ];
+
+function orbitChallengeProfile(targetKm) {
+  if (targetKm >= SPACE_REFERENCE.issMinKm) {
+    return {
+      tier: "iss",
+      badge: "ISS",
+      label: "ISS 高度帶",
+      shortLabel: `${targetKm} km`,
+      detail: `把最高高度拉進 ISS 常見高度帶附近，挑戰 ${targetKm} km。`,
+      reward: "極限高空",
+    };
+  }
+  if (targetKm >= SPACE_REFERENCE.lowEarthOrbitStartKm) {
+    return {
+      tier: "leo",
+      badge: "LEO",
+      label: "低地球軌道",
+      shortLabel: `${targetKm} km`,
+      detail: `越過卡門線後再往上，朝低地球軌道參考高度 ${targetKm} km 逼近。`,
+      reward: "軌道邊緣",
+    };
+  }
+  if (targetKm >= SPACE_REFERENCE.karmanLineKm) {
+    return {
+      tier: "karman",
+      badge: "KARMAN",
+      label: "卡門線挑戰",
+      shortLabel: `${targetKm} km`,
+      detail: `把最高高度推到 ${targetKm} km，越過 ${SPACE_REFERENCE.karmanLineKm} km 的太空邊界。`,
+      reward: "近太空",
+    };
+  }
+  if (targetKm >= 48) {
+    return {
+      tier: "upper-atmosphere",
+      badge: "UPPER",
+      label: "高層大氣窗",
+      shortLabel: `${targetKm} km`,
+      detail: `巡航時把最高高度拉到 ${targetKm} km，讓天空開始轉成高層大氣色帶。`,
+      reward: "高空視野",
+    };
+  }
+  return {
+    tier: "stratosphere",
+    badge: "STRATO",
+    label: "平流層窗",
+    shortLabel: `${targetKm} km`,
+    detail: `先把最高高度練到 ${targetKm} km，熟悉平流層前段的節奏與視覺變化。`,
+    reward: "暖身爬升",
+  };
+}
 
 function haversineKm(from, to) {
   const radius = 6371;
@@ -406,8 +556,20 @@ function haversineKm(from, to) {
   return Math.round(radius * c);
 }
 
-function gameDistanceKm(realDistanceKm) {
-  return Math.round(Math.max(1800, realDistanceKm * 0.55));
+const REAL_WORLD_CRUISE_KMH = 820;
+const GAME_WORLD_SPEED_TARGET = 3000;
+
+function realFlightMinutes(realDistanceKm) {
+  return Math.max(45, Math.round((realDistanceKm / REAL_WORLD_CRUISE_KMH) * 60));
+}
+
+function gameplayMinutes(realDistanceKm) {
+  const realHours = realDistanceKm / REAL_WORLD_CRUISE_KMH;
+  return Number(clamp(2.8 + realHours * 0.85 + Math.pow(realHours, 0.65) * 0.45, 3.2, 11.5).toFixed(1));
+}
+
+function gameDistanceUnits(playMinutes) {
+  return Math.round(playMinutes * 60 * GAME_WORLD_SPEED_TARGET);
 }
 
 function routeDifficulty(index, realDistanceKm) {
@@ -416,28 +578,29 @@ function routeDifficulty(index, realDistanceKm) {
   return clamp(stage + longHaulBoost, 1, 5);
 }
 
-function routeMission(difficulty, distanceKm) {
-  return {
-    stars: 7 + difficulty * 2 + Math.round((distanceKm - 1800) / 900),
-    drafts: clamp(1 + Math.floor(difficulty / 2) + (distanceKm > 3600 ? 1 : 0), 1, 5),
-  };
-}
-
 export const ROUTES = ROUTE_CHAIN.map((route, index) => {
   const from = AIRPORTS[route.from];
   const to = AIRPORTS[route.to];
   const realDistanceKm = haversineKm(from, to);
-  const distance = gameDistanceKm(realDistanceKm);
+  const estimatedRealMinutes = realFlightMinutes(realDistanceKm);
+  const estimatedGameMinutes = gameplayMinutes(realDistanceKm);
+  const distance = gameDistanceUnits(estimatedGameMinutes);
   const difficulty = routeDifficulty(index, realDistanceKm);
+  const orbitChallenge = orbitChallengeProfile(route.orbitTargetKm);
   return {
     id: `${route.from.toLowerCase()}-${route.to.toLowerCase()}`,
     from: route.from,
     to: route.to,
     distance,
     realDistanceKm,
+    estimatedRealMinutes,
+    estimatedGameMinutes,
     difficulty,
     desc: route.desc,
-    mission: routeMission(difficulty, distance),
+    orbitChallenge: {
+      ...orbitChallenge,
+      targetKm: route.orbitTargetKm,
+    },
     sunsetDrain: 2.3 + difficulty * 0.34 + distance / 14000,
     palette: PALETTES[route.theme],
   };

@@ -10,13 +10,13 @@
 - 進入飛行後，飛機會持續向前巡航，你要控制高度、速度與進場角度。
 - 地圖洲塊與機場分布改成參考真實世界比例，航程資訊也會顯示真實世界航距。
 - 空中巡航現在分成三條高度帶可選：
-  - `低空星線`：星星密集，但鳥群多、失誤容錯低
-  - `中空穩定帶`：風流最穩，最適合保守通關
+  - `低空星線`：貼海速度感最強，但鳥群多、失誤容錯低
+  - `中空穩定帶`：姿態最好控，最適合穩定巡航
   - `高空噴流帶`：速度最快，但空氣稀薄、雷暴更多
 - 起飛後下方世界會變成大片海面，鏡頭會跟著飛機一路往高空追。
 - 飛得夠高時，天空會逐漸轉成近太空的軌道感視覺。
-- 途中可以收集星星、穿過風流，並避開暴風雲與鳥群。
-- 航線上也會出現可愛的燃油補給；燃油耗盡時引擎會熄火，你得靠滑翔撐住，或趕快補到燃油。
+- 途中不再有收集要素，飛行重點回到高度、速度、燃油與進場控制本身。
+- 燃油仍會持續消耗；燃油耗盡時引擎會熄火，你得靠滑翔撐住並盡量把飛機帶進跑道。
 - 天色會持續變暗，但不再因為時間耗盡直接判定失敗。
 - 起飛時要先沿 A 機場跑道加速，速度足夠後再抬頭離地。
 - 接近終點後要對準 B 機場跑道，以合適高度與下降速度接地，進場時會放起落架、進入 flare 提示，接地後則會有煙霧、減速板與滑跑痕跡。
@@ -103,7 +103,7 @@
   - `setInput({ up, down, airbrake })` / `releaseInput()`：模擬輸入
   - `setThrottle(value)` / `adjustThrottle(delta)`：調整油門
   - `setFlaps(value)` / `cycleFlaps(step)`：調整襟翼
-  - `patchFlight({ ... })`：直接調整測試中的飛行狀態，也可在 debug 測試中塞入自訂 `actors`
+  - `patchFlight({ ... })`：直接調整測試中的飛行狀態，也可在 debug 測試中塞入自訂 `actors`（目前支援 `bird / storm / jetstream`）
   - `getSnapshot()` 也會包含目前選定航線的 `selectedRouteGhost`（`bestTime / lastTime / slot`），以及飛行中的 `ghostAvailable / ghostSlot / ghostTime / ghostFrames`
   - 飛行 snapshot 也會包含 `fuel / maxFuel / fuelPct / engineOut / hadEngineOut`
 - Playwright smoke test：
@@ -118,7 +118,7 @@
   - 驗證飛過跑道、起飛跑道不足、落地滑停失敗、墜海/重落等分支
 - 燃油系統驗證：
   - `npm run test:playwright:fuel`
-  - 驗證燃油耗盡後會熄火滑翔，並可透過燃油補給恢復引擎
+  - 驗證燃油耗盡後會熄火滑翔，而且舊的 `fuel` actor 型別已經會被忽略
 - 天色耗盡不失敗驗證：
   - `npm run test:playwright:sunset-no-fail`
   - 驗證天色降到 0 後，航班仍會繼續進行

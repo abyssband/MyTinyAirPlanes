@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@400;600;700&family=M+PLUS+Rounded+1c:wght@400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./styles.css?v=20260313-1205">
+  <link rel="stylesheet" href="./styles.css?v=20260314-0035">
 </head>
 <body>
   <div class="app-shell">
@@ -29,7 +29,7 @@
         <div class="layout-grid">
           <div class="panel map-panel">
             <canvas id="map-canvas" aria-label="迷你世界地圖"></canvas>
-            <p class="hint">點擊亮色航線選關，世界地圖已改成真實地理投影的可愛版本，起飛前會有自動航線過場動畫。</p>
+            <p class="hint map-hint">點擊亮色航線選關，世界地圖已改成真實地理投影的可愛版本，起飛前會有自動航線過場動畫。</p>
           </div>
 
           <aside class="panel route-panel">
@@ -65,7 +65,7 @@
               <div id="route-briefing" class="briefing-checklist"></div>
             </section>
             <div class="mission-card">
-              <h3>關卡任務</h3>
+              <h3>飛行目標</h3>
               <ul id="route-mission" class="mission-list"></ul>
             </div>
             <div class="ghost-card">
@@ -90,22 +90,28 @@
           <div class="hud">
             <div class="meter"><span>航程</span><strong id="hud-distance">0%</strong></div>
             <div class="meter"><span>燃油</span><strong id="hud-health">100%</strong></div>
-            <div class="meter"><span>速度</span><strong id="hud-fuel">0</strong></div>
-            <div class="meter"><span>星星</span><strong id="hud-score">0</strong></div>
+            <div class="meter"><span id="hud-speed-label">速度</span><strong id="hud-fuel">0 km/h</strong></div>
+            <div class="meter"><span id="hud-altitude-label">高度</span><strong id="hud-score">0 m</strong></div>
           </div>
           <div class="hud-extra">
             <p id="hud-phase">狀態: 待命</p>
-            <p id="hud-systems">方向鍵速度 保持 · 自動襟翼 1 · 自動空煞 收起</p>
+            <p id="hud-systems">Orbiter R-7 · 方向鍵速度 保持 · 自動襟翼 1 · 自動空煞 收起</p>
             <p id="hud-ghost">鬼影 開啟 · 目前沒有紀錄</p>
+            <p id="hud-orbit">Orbiter R-7 巡航中 · 高空貼紙目標待命</p>
             <p id="hud-mission">先沿 A 機場跑道加速起飛，最後在 B 機場跑道接地並滑停</p>
           </div>
           <pre id="debug-panel" class="debug-panel hidden" aria-live="polite"></pre>
-          <p class="hint">控制：只要用方向鍵。`↑` 拉升、`↓` 壓低、`←` 減速進場、`→` 加速巡航。飛機會自動處理油門、襟翼和空煞；`G` 仍可切換鬼影。</p>
+          <p class="hint flight-hint">控制：只要用方向鍵。`↑` 拉升、`↓` 壓低、`←` 減速進場、`→` 加速巡航。飛機會自動處理油門、襟翼和空煞；`G` 仍可切換鬼影。</p>
         </div>
       </section>
 
       <section id="result-screen" class="screen hidden">
         <div class="panel result-panel">
+          <div class="result-decor" aria-hidden="true">
+            <div id="result-sticker-strip" class="result-sticker-strip"></div>
+            <div id="result-stamp" class="result-stamp">air mail</div>
+          </div>
+          <p class="result-kicker">arrival postcard</p>
           <h2 id="result-title"></h2>
           <p id="result-summary" class="result-summary"></p>
           <p id="result-body"></p>
@@ -138,6 +144,6 @@
     <button id="touch-right" class="touch-btn touch-btn-small">加速</button>
   </div>
 
-  <script type="module" src="./main.js?v=20260313-1205"></script>
+  <script type="module" src="./main.js?v=20260314-0035"></script>
 </body>
 </html>

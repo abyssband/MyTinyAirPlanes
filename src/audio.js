@@ -118,25 +118,16 @@ export function createAudioController({ getState, musicPattern }) {
       return;
     }
     if (type === "start") {
+      playNoise(0.16, 0.018, 320);
+      playTone(164.81, 0.14, { type: "sawtooth", gain: 0.026, slideTo: 196 });
       playTone(392, 0.1, { delay: 0.0 });
       playTone(523.25, 0.12, { delay: 0.08 });
       playTone(659.25, 0.16, { delay: 0.16 });
       return;
     }
-    if (type === "draft") {
+    if (type === "jetstream") {
       playNoise(0.12, 0.03, 780);
       playTone(720, 0.12, { gain: 0.04, slideTo: 980, delay: 0.02 });
-      return;
-    }
-    if (type === "star") {
-      playTone(820, 0.06, { gain: 0.05 });
-      playTone(1040, 0.08, { gain: 0.05, delay: 0.04 });
-      return;
-    }
-    if (type === "fuel") {
-      playTone(640, 0.08, { gain: 0.045, slideTo: 760 });
-      playTone(960, 0.1, { gain: 0.04, delay: 0.05 });
-      playNoise(0.06, 0.018, 900, 0.01);
       return;
     }
     if (type === "island") {
@@ -146,20 +137,31 @@ export function createAudioController({ getState, musicPattern }) {
       return;
     }
     if (type === "perfect") {
-      playTone(659.25, 0.08, { gain: 0.05 });
-      playTone(783.99, 0.08, { gain: 0.05, delay: 0.05 });
-      playTone(987.77, 0.12, { gain: 0.055, delay: 0.11 });
+      playNoise(0.2, 0.018, 420);
+      playTone(196, 0.16, { type: "sawtooth", gain: 0.028, slideTo: 312 });
+      playTone(659.25, 0.09, { gain: 0.046, delay: 0.03 });
+      playTone(783.99, 0.11, { gain: 0.05, delay: 0.1 });
+      playTone(987.77, 0.16, { gain: 0.054, delay: 0.18 });
       return;
     }
     if (type === "touchdown") {
-      playNoise(0.1, 0.03, 540);
-      playTone(210, 0.09, { type: "sawtooth", gain: 0.035, slideTo: 160 });
-      playTone(440, 0.08, { gain: 0.03, delay: 0.03 });
+      playNoise(0.12, 0.036, 460);
+      playNoise(0.08, 0.02, 1800, 0.02);
+      playTone(176, 0.11, { type: "sawtooth", gain: 0.04, slideTo: 128 });
+      playTone(220, 0.1, { type: "triangle", gain: 0.026, delay: 0.01, slideTo: 188 });
+      playTone(523.25, 0.08, { gain: 0.022, delay: 0.045 });
+      return;
+    }
+    if (type === "rollout") {
+      playNoise(0.18, 0.018, 520, 0.02);
+      playTone(148, 0.16, { type: "sawtooth", gain: 0.024, delay: 0.02, slideTo: 118 });
+      playTone(294.33, 0.12, { gain: 0.018, delay: 0.08, slideTo: 247 });
       return;
     }
     if (type === "bounce") {
-      playNoise(0.07, 0.024, 760);
-      playTone(260, 0.08, { gain: 0.032, slideTo: 340 });
+      playNoise(0.08, 0.026, 760);
+      playTone(220, 0.08, { gain: 0.028, slideTo: 300 });
+      playTone(410, 0.06, { gain: 0.016, delay: 0.04 });
       return;
     }
     if (type === "hit") {
@@ -171,6 +173,40 @@ export function createAudioController({ getState, musicPattern }) {
       playTone(523.25, 0.14, { gain: 0.05 });
       playTone(659.25, 0.14, { gain: 0.05, delay: 0.08 });
       playTone(783.99, 0.18, { gain: 0.055, delay: 0.16 });
+      return;
+    }
+    if (type === "stratosphere") {
+      playNoise(0.14, 0.012, 1200);
+      playTone(523.25, 0.12, { gain: 0.034, delay: 0.01 });
+      playTone(783.99, 0.16, { gain: 0.038, delay: 0.1, slideTo: 932.33 });
+      return;
+    }
+    if (type === "karman") {
+      playNoise(0.22, 0.02, 980);
+      playTone(392, 0.16, { type: "sawtooth", gain: 0.03, slideTo: 523.25 });
+      playTone(659.25, 0.14, { gain: 0.034, delay: 0.08 });
+      playTone(987.77, 0.18, { gain: 0.04, delay: 0.18 });
+      return;
+    }
+    if (type === "orbit") {
+      playNoise(0.18, 0.015, 1400);
+      playTone(293.66, 0.24, { type: "sine", gain: 0.026, slideTo: 440 });
+      playTone(587.33, 0.18, { gain: 0.03, delay: 0.09 });
+      playTone(880, 0.22, { gain: 0.034, delay: 0.18 });
+      return;
+    }
+    if (type === "iss") {
+      playTone(659.25, 0.12, { gain: 0.034 });
+      playTone(987.77, 0.14, { gain: 0.038, delay: 0.06 });
+      playTone(1318.51, 0.18, { gain: 0.042, delay: 0.14 });
+      playNoise(0.12, 0.012, 1800, 0.03);
+      return;
+    }
+    if (type === "sticker") {
+      playTone(523.25, 0.1, { gain: 0.038 });
+      playTone(783.99, 0.1, { gain: 0.04, delay: 0.07 });
+      playTone(1174.66, 0.14, { gain: 0.046, delay: 0.15 });
+      playNoise(0.08, 0.01, 1600, 0.03);
       return;
     }
     if (type === "unlock") {
