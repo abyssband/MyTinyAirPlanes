@@ -7,7 +7,6 @@ import {
   loadPlaywright,
   logStep,
   projectRoot,
-  round,
 } from "./playwright-support.mjs";
 
 async function main() {
@@ -24,24 +23,20 @@ async function main() {
     const page = await context.newPage();
 
     logStep("開啟遊戲頁面（debug + mute）");
-    await bootDebugPage(page, url, 0);
+    await bootDebugPage(page, url, 1);
     await page.evaluate(() => {
       document.getElementById("start-flight")?.click();
     });
     await page.waitForFunction(() => window.__tinyAirplanes.getSnapshot().screen === "flight", null, { timeout: 9000 });
 
-    const startSnapshot = await getSnapshot(page);
-    assert(startSnapshot.flight?.routeId === "yvr-lax", "預期失敗案例從第一條航線開始");
-    logStep("已進入飛行畫面，準備模擬飛過跑道");
-
     await page.evaluate(() => {
       const { flight } = window.__tinyAirplanes.getSnapshot();
       window.__tinyAirplanes.patchFlight({
-        worldX: flight.arrivalRunwayEnd + 52,
-        altitude: flight.runwayAltitude + flight.planeBottomOffset + 150,
-        cameraAltitude: flight.runwayAltitude + 290,
-        vy: 12,
-        speed: 246,
+        worldX: flight.arrivalRunwayStart + 28,
+        altitude: flight.runwayAltitude + flight.planeBottomOffset + 2,
+        cameraAltitude: flight.runwayAltitude + 220,
+        vy: -72,
+        speed: 136,
         sun: 999,
         phase: "approach",
         grounded: false,
@@ -49,19 +44,26 @@ async function main() {
       });
     });
 
-    await page.waitForFunction(() => window.__tinyAirplanes.getSnapshot().screen === "result", null, { timeout: 2500 });
+    await page.waitForFunction(() => window.__tinyAirplanes.getSnapshot().screen === "result", null, { timeout: 5000 });
     const resultSnapshot = await getSnapshot(page);
-    assert(resultSnapshot.result?.title?.includes("未完成"), "預期飛過跑道後應進入失敗結算");
-    assert(resultSnapshot.result?.body?.includes("飛過了機場"), "預期失敗原因應明確標示為錯過跑道");
-    logStep("飛過 B 機場但未對準跑道時，會正確進入失敗結算");
+    assert(resultSnapshot.result?.continueRouteId === "mex-bog", "預期成功抵達 LAX 後，最近機場續飛應預設到 MEX -> BOG");
+    logStep("結算畫面已給出最近機場續飛建議");
+
+    await page.evaluate(() => {
+      document.getElementById("continue-flight")?.click();
+    });
+    await page.waitForFunction(() => window.__tinyAirplanes.getSnapshot().screen === "flight", null, { timeout: 9000 });
+    const continueSnapshot = await getSnapshot(page);
+    assert(continueSnapshot.flight?.routeId === "mex-bog", "預期按下繼續飛行後會進入最近機場的下一段航線");
+    assert(continueSnapshot.flight?.phase === "takeoff_roll", "預期繼續飛行後應從新航段跑道滑跑開始");
+    logStep("繼續飛行按鈕可直接接到最近機場的下一段航線");
 
     console.log("");
-    console.log("Failure case passed");
+    console.log("Continue flight test passed");
     console.log(JSON.stringify({
-      route: resultSnapshot.result.routeIndex,
-      title: resultSnapshot.result.title,
-      reason: "missed-runway",
-      remainingBeforeFail: round(startSnapshot.flight.remaining),
+      suggestedRoute: resultSnapshot.result.continueRouteId,
+      startedRoute: continueSnapshot.flight.routeId,
+      phase: continueSnapshot.flight.phase,
     }, null, 2));
   } finally {
     await browser?.close();
@@ -71,7 +73,7 @@ async function main() {
 
 main().catch((error) => {
   console.error("");
-  console.error("Failure case failed");
+  console.error("Continue flight test failed");
   console.error(error?.stack || error);
   process.exitCode = 1;
 });

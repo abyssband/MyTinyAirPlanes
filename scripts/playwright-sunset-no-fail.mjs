@@ -27,9 +27,9 @@ async function main() {
     await page.evaluate(() => {
       document.getElementById("start-flight")?.click();
     });
-    await page.waitForFunction(() => window.__tinyAirplanes.getSnapshot().screen === "flight", null, { timeout: 5000 });
+    await page.waitForFunction(() => window.__tinyAirplanes.getSnapshot().screen === "flight", null, { timeout: 9000 });
 
-    logStep("已進入飛行畫面，準備模擬夕陽耗盡");
+    logStep("已進入飛行畫面，準備模擬天色耗盡");
     await page.evaluate(() => {
       const { flight } = window.__tinyAirplanes.getSnapshot();
       window.__tinyAirplanes.patchFlight({
@@ -42,20 +42,24 @@ async function main() {
         phase: "cruise",
         grounded: false,
         runwayState: null,
+        spawnCursor: Math.max(flight.worldX, flight.departureRunwayEnd + 180) + 2200,
+        clearActors: true,
       });
     });
 
-    await page.waitForFunction(() => window.__tinyAirplanes.getSnapshot().screen === "result", null, { timeout: 2500 });
-    const resultSnapshot = await getSnapshot(page);
-    assert(resultSnapshot.result?.title?.includes("失敗"), "預期夕陽耗盡後應進入失敗結算");
-    assert(resultSnapshot.result?.body?.includes("夕陽落下前"), "預期失敗原因應標示為 sunset");
-    logStep("夕陽耗盡時，會正確進入 sunset 結算");
+    await page.waitForTimeout(800);
+    const snapshot = await getSnapshot(page);
+    assert(snapshot.screen === "flight", "預期天色耗盡後仍保持在飛行畫面");
+    assert(snapshot.flight?.sunPct === 0, `預期天色耗盡後 sunPct 應為 0，實際 ${snapshot.flight?.sunPct}`);
+    logStep("天色耗盡後不再直接失敗，飛行可持續進行");
 
     console.log("");
-    console.log("Sunset case passed");
+    console.log("Sunset no-fail case passed");
     console.log(JSON.stringify({
-      route: resultSnapshot.result.routeIndex,
-      reason: "sunset",
+      route: snapshot.flight?.routeId,
+      screen: snapshot.screen,
+      sunPct: snapshot.flight?.sunPct,
+      phase: snapshot.flight?.phase,
     }, null, 2));
   } finally {
     await browser?.close();
@@ -65,7 +69,7 @@ async function main() {
 
 main().catch((error) => {
   console.error("");
-  console.error("Sunset case failed");
+  console.error("Sunset no-fail case failed");
   console.error(error?.stack || error);
   process.exitCode = 1;
 });

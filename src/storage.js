@@ -8,33 +8,12 @@ import {
   STORAGE_DEBUG_KEY,
   STORAGE_GHOST_ENABLED_KEY,
   STORAGE_GHOSTS_KEY,
-  STORAGE_HANGAR_KEY,
   STORAGE_SAVE_VERSION_KEY,
   STORAGE_UNLOCK_KEY,
-  UPGRADE_CONFIG,
-} from "./config.js";
-import { clamp } from "./utils.js";
+} from "./config.js?v=20260313-1205";
+import { clamp } from "./utils.js?v=20260313-1205";
 
-function clampLevel(level, maxLevel) {
-  const parsed = Number.parseInt(level, 10);
-  if (!Number.isFinite(parsed)) {
-    return 0;
-  }
-  return clamp(parsed, 0, maxLevel);
-}
-
-export function normalizeHangar(raw) {
-  const source = raw && typeof raw === "object" ? raw : {};
-  const upgrades = source.upgrades && typeof source.upgrades === "object" ? source.upgrades : source;
-  return {
-    parts: Math.max(0, Number.parseInt(source.parts, 10) || 0),
-    upgrades: {
-      engine: clampLevel(upgrades.engine, UPGRADE_CONFIG.engine.maxLevel),
-      tank: clampLevel(upgrades.tank, UPGRADE_CONFIG.tank.maxLevel),
-      frame: clampLevel(upgrades.frame, UPGRADE_CONFIG.frame.maxLevel),
-    },
-  };
-}
+const LEGACY_STORAGE_HANGAR_KEY = "tiny-airplanes.hangar";
 
 export function normalizeBestRuns(raw) {
   const bestRuns = {};
@@ -129,7 +108,6 @@ export function loadPersistedState(storage) {
   const unlockedRoute = readUnlocked(storage);
   const bestRuns = normalizeBestRuns(readJson(storage, STORAGE_BEST_KEY, "{}"));
   const ghostRuns = normalizeGhostRuns(readJson(storage, STORAGE_GHOSTS_KEY, "{}"));
-  const hangar = normalizeHangar(readJson(storage, STORAGE_HANGAR_KEY, "{}"));
   const audioRaw = storage.getItem(STORAGE_AUDIO_KEY);
   const debugRaw = storage.getItem(STORAGE_DEBUG_KEY);
   const ghostEnabledRaw = storage.getItem(STORAGE_GHOST_ENABLED_KEY);
@@ -139,7 +117,6 @@ export function loadPersistedState(storage) {
     unlockedRoute,
     bestRuns,
     ghostRuns,
-    hangar,
     audioEnabled: FORCE_MUTE ? false : audioRaw === null ? true : audioRaw === "1",
     debugEnabled: FORCE_DEBUG ? debugRaw === "1" : false,
     ghostEnabled: ghostEnabledRaw === null ? true : ghostEnabledRaw === "1",
@@ -158,7 +135,7 @@ function persistFullState(storage, snapshot) {
   storage.setItem(STORAGE_UNLOCK_KEY, String(snapshot.unlockedRoute));
   storage.setItem(STORAGE_BEST_KEY, JSON.stringify(snapshot.bestRuns));
   storage.setItem(STORAGE_GHOSTS_KEY, JSON.stringify(snapshot.ghostRuns || {}));
-  storage.setItem(STORAGE_HANGAR_KEY, JSON.stringify(snapshot.hangar));
+  storage.removeItem(LEGACY_STORAGE_HANGAR_KEY);
   storage.setItem(STORAGE_AUDIO_KEY, snapshot.audioEnabled ? "1" : "0");
   storage.setItem(STORAGE_DEBUG_KEY, snapshot.debugEnabled ? "1" : "0");
   storage.setItem(STORAGE_GHOST_ENABLED_KEY, snapshot.ghostEnabled ? "1" : "0");
@@ -174,11 +151,6 @@ export function saveProgressData(storage, unlockedRoute, bestRuns, ghostRuns = {
 export function saveAudioPreference(storage, enabled) {
   storage.setItem(STORAGE_SAVE_VERSION_KEY, String(CURRENT_SAVE_VERSION));
   storage.setItem(STORAGE_AUDIO_KEY, enabled ? "1" : "0");
-}
-
-export function saveHangarData(storage, hangar) {
-  storage.setItem(STORAGE_SAVE_VERSION_KEY, String(CURRENT_SAVE_VERSION));
-  storage.setItem(STORAGE_HANGAR_KEY, JSON.stringify(normalizeHangar(hangar)));
 }
 
 export function saveDebugPreference(storage, enabled) {

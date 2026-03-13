@@ -19,6 +19,8 @@ export function createFlightRenderer(deps) {
     routeProgress,
     runwayDeckAltitudeAt,
     surfaceScreenY,
+    getAltitudeRouteBands,
+    getAltitudeBandState,
     landingAssistState,
     nightApproachRatio,
     getState,
@@ -76,6 +78,77 @@ export function createFlightRenderer(deps) {
       ctx.quadraticCurveTo(i * 18 + 4, 0, i * 18 - 4, -ry * 0.6);
       ctx.stroke();
     }
+    ctx.restore();
+  }
+
+  function drawJetstream(ctx, x, y, rx, ry, color) {
+    ctx.save();
+    ctx.translate(x, y);
+    const gradient = ctx.createLinearGradient(-rx, 0, rx, 0);
+    gradient.addColorStop(0, "rgba(255,255,255,0)");
+    gradient.addColorStop(0.28, color);
+    gradient.addColorStop(0.72, "rgba(255,255,255,0.86)");
+    gradient.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.78)";
+    ctx.lineWidth = 2.4;
+    for (let i = -1; i <= 1; i += 1) {
+      ctx.beginPath();
+      ctx.moveTo(-rx * 0.72, i * 10);
+      ctx.bezierCurveTo(-rx * 0.18, i * 12, rx * 0.12, i * 4, rx * 0.72, i * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawFuelPickup(ctx, x, y, radius, elapsed = 0) {
+    const bob = Math.sin(elapsed * 3.6 + x * 0.01) * 2.4;
+    const glow = 0.24 + Math.sin(elapsed * 5 + x * 0.02) * 0.04;
+    ctx.save();
+    ctx.translate(x, y + bob);
+    ctx.rotate(-0.08);
+
+    ctx.fillStyle = `rgba(255, 241, 180, ${glow})`;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, radius * 1.7, radius * 1.36, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    const bodyGradient = ctx.createLinearGradient(-radius, -radius, radius, radius);
+    bodyGradient.addColorStop(0, "#fff8d1");
+    bodyGradient.addColorStop(0.55, "#ffd071");
+    bodyGradient.addColorStop(1, "#ffaf58");
+    drawRoundRectPath(ctx, -radius * 0.78, -radius * 0.92, radius * 1.56, radius * 1.88, radius * 0.42);
+    ctx.fillStyle = bodyGradient;
+    ctx.fill();
+
+    ctx.strokeStyle = "rgba(41, 72, 95, 0.34)";
+    ctx.lineWidth = 1.8;
+    ctx.stroke();
+
+    drawRoundRectPath(ctx, -radius * 0.5, -radius * 1.18, radius, radius * 0.36, radius * 0.14);
+    ctx.fillStyle = "#f7f2de";
+    ctx.fill();
+
+    ctx.fillStyle = "#29485f";
+    ctx.beginPath();
+    ctx.moveTo(-radius * 0.14, -radius * 0.22);
+    ctx.lineTo(radius * 0.22, -radius * 0.22);
+    ctx.lineTo(radius * 0.04, radius * 0.12);
+    ctx.lineTo(radius * 0.28, radius * 0.12);
+    ctx.lineTo(-radius * 0.06, radius * 0.54);
+    ctx.lineTo(radius * 0.06, radius * 0.18);
+    ctx.lineTo(-radius * 0.18, radius * 0.18);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = "rgba(255,255,255,0.72)";
+    ctx.beginPath();
+    ctx.arc(-radius * 0.24, -radius * 0.3, radius * 0.16, 0, Math.PI * 2);
+    ctx.fill();
+
     ctx.restore();
   }
 
@@ -720,12 +793,71 @@ export function createFlightRenderer(deps) {
       }
       if (actor.type === "star") {
         drawStar(ctx, x, y, actor.r, palette.star);
+      } else if (actor.type === "fuel") {
+        drawFuelPickup(ctx, x, y, actor.r, flight.elapsed);
       } else if (actor.type === "draft") {
         drawDraft(ctx, x, y, actor.rx, actor.ry, palette.draft);
+      } else if (actor.type === "jetstream") {
+        drawJetstream(ctx, x, y, actor.rx, actor.ry, "rgba(205, 226, 255, 0.7)");
       } else {
         drawHazard(ctx, { ...actor, x, y });
       }
     });
+  }
+
+  function drawAltitudeRoutes(ctx, flight, spaceRatio) {
+    const bands = getAltitudeRouteBands(flight);
+    const activeBand = getAltitudeBandState(flight);
+    ctx.save();
+    bands.forEach((band, index) => {
+      const y = worldToScreenY(flight, band.center);
+      if (y < -70 || y > gameCanvas.height + 70) {
+        return;
+      }
+      const active = band.id === activeBand.id;
+      ctx.strokeStyle = band.color.replace(/0\.\d+\)/, `${active ? 0.34 : 0.15})`);
+      ctx.lineWidth = active ? 2.6 : 1.4;
+      ctx.setLineDash(active ? [14, 10] : [10, 12]);
+      ctx.beginPath();
+      for (let x = 28; x <= gameCanvas.width - 24; x += 28) {
+        const yy = y + horizonCurveOffset(x, spaceRatio) * 0.12;
+        if (x === 28) {
+          ctx.moveTo(x, yy);
+        } else {
+          ctx.lineTo(x, yy);
+        }
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      drawRoundRectPath(ctx, 18, y - 15, active ? 140 : 118, 26, 13);
+      ctx.fillStyle = active ? "rgba(255,255,255,0.88)" : "rgba(255,255,255,0.62)";
+      ctx.fill();
+      ctx.fillStyle = active ? "#29485f" : "rgba(41, 72, 95, 0.76)";
+      ctx.font = `700 ${Math.round((active ? 13 : 12) * (gameCanvas.width / 1080))}px "M PLUS Rounded 1c", sans-serif`;
+      ctx.textAlign = "left";
+      ctx.fillText(active ? `${band.title} · ${band.reward}` : band.title, 30, y + 2);
+      if (active) {
+        ctx.fillStyle = band.color;
+        ctx.beginPath();
+        ctx.arc(138, y - 2, 4.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      if (index < bands.length - 1) {
+        const nextY = worldToScreenY(flight, bands[index + 1].center);
+        const splitY = (y + nextY) * 0.5;
+        if (splitY > 0 && splitY < gameCanvas.height) {
+          ctx.strokeStyle = "rgba(255,255,255,0.1)";
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(20, splitY);
+          ctx.lineTo(gameCanvas.width - 20, splitY);
+          ctx.stroke();
+        }
+      }
+    });
+    ctx.restore();
   }
 
   function drawFlight() {
@@ -778,16 +910,17 @@ export function createFlightRenderer(deps) {
     });
     drawRunwayIsland(gameCtx, flight, flight.arrivalAirportX, AIRPORTS[route.to].code, "#4f7b9b", palette, {
       nightRatio,
-      approachActive: flight.phase === "approach" || flight.phase === "landing_roll",
+      approachActive: flight.phase === "descent" || flight.phase === "approach" || flight.phase === "landing_roll",
     });
     drawRunwayMarks(gameCtx, flight);
 
     const destinationX = flight.arrivalAirportX - camX;
     const destinationY = worldToScreenY(flight, flight.runwayAltitude) + horizonCurveOffset(destinationX, spaceRatio);
-    if (flight.phase === "approach" && !flight.grounded && destinationX > -220 && destinationX < w + 220) {
+    if ((flight.phase === "approach" || flight.phase === "descent") && !flight.grounded && destinationX > -220 && destinationX < w + 220) {
       drawApproachGuides(gameCtx, flight, destinationX, destinationY - 16, landingAssist.flareWindow);
     }
 
+    drawAltitudeRoutes(gameCtx, flight, spaceRatio);
     drawActors(gameCtx, flight, palette);
     drawTouchdownEffects(gameCtx, flight);
     drawGhostPlane(gameCtx, flight, palette, spaceRatio);

@@ -32,6 +32,17 @@ export function round(value, digits = 1) {
   return Math.round(value * factor) / factor;
 }
 
+export function attachPageDiagnostics(page, label = "page") {
+  page.on("pageerror", (error) => {
+    console.log(`[${label}:pageerror] ${error?.stack || error?.message || error}`);
+  });
+  page.on("console", (message) => {
+    if (message.type() === "error") {
+      console.log(`[${label}:console:${message.type()}] ${message.text()}`);
+    }
+  });
+}
+
 export async function createStaticServer(root = projectRoot) {
   const server = createServer(async (request, response) => {
     try {

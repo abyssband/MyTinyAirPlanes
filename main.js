@@ -1,24 +1,24 @@
 import {
   AIRPORTS,
   FORCE_DEBUG,
+  MAP_LANDMASSES,
+  MAP_REGION_STICKERS,
   MUSIC_PATTERN,
   ROUTES,
   STORAGE_BEST_KEY,
   STORAGE_GHOSTS_KEY,
   STORAGE_UNLOCK_KEY,
-  UPGRADE_CONFIG,
-} from "./src/config.js";
-import { createAudioController } from "./src/audio.js";
-import { createFlightRenderer } from "./src/flight/render.js";
-import { createFlightRuntime } from "./src/flight/runtime.js";
+} from "./src/config.js?v=20260313-1205";
+import { createAudioController } from "./src/audio.js?v=20260313-1205";
+import { createFlightRenderer } from "./src/flight/render.js?v=20260313-1205";
+import { createFlightRuntime } from "./src/flight/runtime.js?v=20260313-1205";
 import {
   loadPersistedState,
   saveAudioPreference,
   saveDebugPreference,
-  saveHangarData,
   saveGhostPreference,
   saveProgressData,
-} from "./src/storage.js";
+} from "./src/storage.js?v=20260313-1205";
 import {
   blendHex,
   clamp,
@@ -28,7 +28,7 @@ import {
   lerp,
   roundNumber,
   smoothStep,
-} from "./src/utils.js";
+} from "./src/utils.js?v=20260313-1205";
 
 const mapScreen = document.getElementById("map-screen");
 const flightScreen = document.getElementById("flight-screen");
@@ -43,11 +43,14 @@ const routeTitle = document.getElementById("route-title");
 const routeMeta = document.getElementById("route-meta");
 const routeDesc = document.getElementById("route-desc");
 const routeMission = document.getElementById("route-mission");
+const routeFromCode = document.getElementById("route-from-code");
+const routeFromName = document.getElementById("route-from-name");
+const routeToCode = document.getElementById("route-to-code");
+const routeToName = document.getElementById("route-to-name");
+const routeBriefing = document.getElementById("route-briefing");
 const ghostSlotMeta = document.getElementById("ghost-slot-meta");
 const ghostSlotBestButton = document.getElementById("ghost-slot-best");
 const ghostSlotLastButton = document.getElementById("ghost-slot-last");
-const hangarParts = document.getElementById("hangar-parts");
-const upgradeList = document.getElementById("upgrade-list");
 const routePills = document.getElementById("route-pills");
 const startFlightButton = document.getElementById("start-flight");
 const resetProgressButton = document.getElementById("reset-progress");
@@ -66,7 +69,13 @@ const hudMission = document.getElementById("hud-mission");
 const debugPanel = document.getElementById("debug-panel");
 
 const resultTitle = document.getElementById("result-title");
+const resultSummary = document.getElementById("result-summary");
 const resultBody = document.getElementById("result-body");
+const resultStats = document.getElementById("result-stats");
+const resultNotes = document.getElementById("result-notes");
+const resultContinuePanel = document.getElementById("result-continue-panel");
+const resultContinueSummary = document.getElementById("result-continue-summary");
+const continueFlightButton = document.getElementById("continue-flight");
 const resultGhostPanel = document.getElementById("result-ghost-panel");
 const resultGhostSummary = document.getElementById("result-ghost-summary");
 const resultGhostBestButton = document.getElementById("result-ghost-best");
@@ -77,10 +86,8 @@ const backToMapButton = document.getElementById("back-to-map");
 const touchControls = document.getElementById("touch-controls");
 const touchUp = document.getElementById("touch-up");
 const touchDown = document.getElementById("touch-down");
-const touchThrottleDown = document.getElementById("touch-throttle-down");
-const touchThrottleUp = document.getElementById("touch-throttle-up");
-const touchFlaps = document.getElementById("touch-flaps");
-const touchAirbrake = document.getElementById("touch-airbrake");
+const touchLeft = document.getElementById("touch-left");
+const touchRight = document.getElementById("touch-right");
 
 const state = {
   screen: "map",
@@ -88,15 +95,10 @@ const state = {
   unlockedRoute: 0,
   bestRuns: {},
   ghostRuns: {},
-  hangar: {
-    parts: 0,
-    upgrades: {
-      engine: 0,
-      tank: 0,
-      frame: 0,
-    },
-  },
   mapHoverRoute: -1,
+  mapHoverRegion: "",
+  mapRegionPop: {},
+  mapRegionStars: [],
   mapPulse: 0,
   mapTransition: null,
   flight: null,
@@ -104,6 +106,8 @@ const state = {
   input: {
     up: false,
     down: false,
+    left: false,
+    right: false,
     airbrake: false,
   },
   audioEnabled: true,
@@ -127,7 +131,6 @@ const flightRuntime = createFlightRuntime({
   smoothStep,
   hash1,
   createSeededRng,
-  getHangarEffects,
   playSfx,
   finishFlight,
   updateHud,
@@ -152,6 +155,8 @@ const {
   runwayDeckAltitudeAt,
   surfaceScreenY,
   createFlightState,
+  getAltitudeRouteBands,
+  getAltitudeBandState,
   updateFlight,
 } = flightRuntime;
 const flightRenderer = createFlightRenderer({
@@ -174,6 +179,8 @@ const flightRenderer = createFlightRenderer({
   routeProgress,
   runwayDeckAltitudeAt,
   surfaceScreenY,
+  getAltitudeRouteBands,
+  getAltitudeBandState,
   landingAssistState,
   nightApproachRatio,
   getState: () => state,
@@ -187,32 +194,11 @@ function missionItems(route) {
   ];
 }
 
-function getUpgradeCost(id, level = state.hangar.upgrades[id]) {
-  const config = UPGRADE_CONFIG[id];
-  return config.baseCost + config.costStep * level;
-}
-
-function getHangarEffects() {
-  const engineLevel = state.hangar.upgrades.engine;
-  const wingLevel = state.hangar.upgrades.tank;
-  const frameLevel = state.hangar.upgrades.frame;
-  return {
-    speedMultiplier: 1 + engineLevel * 0.08,
-    launchBoost: 1 + engineLevel * 0.09,
-    glideLift: 1 + wingLevel * 0.12,
-    draftBoost: 1 + wingLevel * 0.1,
-    crashResistance: 1 + frameLevel * 0.12,
-    sunsetPreservation: 1 + frameLevel * 0.08,
-    sunReserve: 78 + frameLevel * 10,
-  };
-}
-
 function loadProgress() {
   const persisted = loadPersistedState(localStorage);
   state.unlockedRoute = persisted.unlockedRoute;
   state.bestRuns = persisted.bestRuns;
   state.ghostRuns = persisted.ghostRuns;
-  state.hangar = persisted.hangar;
   state.audioEnabled = persisted.audioEnabled;
   state.ghostEnabled = persisted.ghostEnabled;
   state.debugEnabled = persisted.debugEnabled;
@@ -224,10 +210,6 @@ function saveProgress() {
 
 function saveAudioSetting() {
   saveAudioPreference(localStorage, state.audioEnabled);
-}
-
-function saveHangar() {
-  saveHangarData(localStorage, state.hangar);
 }
 
 function saveDebugSetting() {
@@ -295,7 +277,7 @@ function nightApproachRatio(flight) {
     return 0;
   }
   const sunRatio = clamp(flight.sun / Math.max(1, flight.maxSun), 0, 1);
-  const approachBoost = smoothStep((routeProgress(flight) - 0.74) / 0.18) * 0.35;
+  const approachBoost = smoothStep((routeProgress(flight) - 0.62) / 0.24) * 0.35;
   return clamp(1 - sunRatio * 1.18 + approachBoost, 0, 1);
 }
 
@@ -311,7 +293,97 @@ function currentStallSpeed(flight) {
   return Math.max(720, flight.stallSpeed - flight.flapLift * 124);
 }
 
+function altitudeBandLabel(flight) {
+  if (!flight) {
+    return "待命";
+  }
+  return getAltitudeBandState(flight).title;
+}
+
+function altitudeBandHint(flight) {
+  if (!flight) {
+    return "";
+  }
+  const band = getAltitudeBandState(flight);
+  return `${band.title} · ${band.reward} / ${band.risk}`;
+}
+
+function currentFuelPercent(flight) {
+  if (!flight) {
+    return 0;
+  }
+  return clamp((flight.fuel / Math.max(1, flight.maxFuel)) * 100, 0, 100);
+}
+
+function autoThrottleTarget(flight) {
+  if (flight.engineOut) {
+    return 0.18;
+  }
+  if (flight.grounded && flight.runwayState === "departure") {
+    return 1;
+  }
+  if (flight.grounded && flight.runwayState === "arrival") {
+    return 0.18;
+  }
+  if (flight.phase === "climbout") {
+    return 0.94;
+  }
+  if (flight.phase === "descent") {
+    return 0.58;
+  }
+  if (flight.phase === "approach") {
+    return landingAssistState(flight).flareWindow ? 0.28 : 0.44;
+  }
+  if (flight.phase === "landing_roll") {
+    return 0.18;
+  }
+  return 0.82;
+}
+
+function autoFlapSetting(flight) {
+  if (flight.grounded && flight.runwayState === "departure") {
+    return 1;
+  }
+  if (flight.phase === "climbout") {
+    return routeProgress(flight) < 0.06 ? 1 : 0;
+  }
+  if (flight.phase === "descent") {
+    return 1;
+  }
+  if (flight.phase === "approach" || flight.phase === "landing_roll") {
+    return 2;
+  }
+  return 0;
+}
+
+function speedControlLabel(flight) {
+  if (!flight) {
+    return "保持";
+  }
+  if (state.input.left) {
+    return flight.grounded && flight.runwayState === "arrival" ? "地面煞停" : "減速";
+  }
+  if (state.input.right) {
+    return flight.grounded && flight.runwayState === "departure" ? "起飛加速" : "加速";
+  }
+  return flight.phase === "approach" || flight.phase === "descent" ? "自動進場" : "保持";
+}
+
 function updateFlightSystems(flight, dt) {
+  const flareWindow = landingAssistState(flight).flareWindow;
+  let throttleTarget = autoThrottleTarget(flight);
+  if (state.input.right) {
+    throttleTarget += flight.grounded && flight.runwayState === "departure" ? 0.08 : 0.18;
+  }
+  if (state.input.left) {
+    throttleTarget -= flight.grounded && flight.runwayState === "arrival" ? 0.24 : 0.26;
+  }
+  if (flareWindow) {
+    throttleTarget = Math.min(throttleTarget, 0.34);
+  }
+  flight.throttleTarget = clampThrottle(throttleTarget);
+  flight.flaps = clampFlaps(autoFlapSetting(flight));
+  state.input.airbrake = state.input.left;
   flight.throttle = lerp(flight.throttle, flight.throttleTarget, clamp(dt * 4.8, 0.05, 0.24));
   const airbrakeTarget = state.input.airbrake ? 1 : 0;
   flight.airbrakeDrag = lerp(flight.airbrakeDrag, airbrakeTarget, clamp(dt * 7.5, 0.08, 0.3));
@@ -655,12 +727,23 @@ function getSnapshot() {
       cameraAltitude: roundNumber(flight.cameraAltitude),
       verticalSpeed: roundNumber(flight.vy),
       speed: roundNumber(flight.speed),
+      altitudeBand: flight.altitudeBand || getAltitudeBandState(flight).id,
+      altitudeBandLabel: altitudeBandLabel(flight),
+      altitudeBandHint: altitudeBandHint(flight),
       throttle: roundNumber(flight.throttle, 2),
       throttleTarget: roundNumber(flight.throttleTarget, 2),
       flaps: flight.flaps,
+      left: state.input.left,
+      right: state.input.right,
       airbrake: state.input.airbrake,
       sun: roundNumber(flight.sun),
       sunPct: roundNumber(currentSunPercent(flight)),
+      fuel: roundNumber(flight.fuel),
+      maxFuel: roundNumber(flight.maxFuel),
+      fuelPct: roundNumber(currentFuelPercent(flight)),
+      engineOut: flight.engineOut,
+      hadEngineOut: flight.hadEngineOut,
+      lowFuelWarning: flight.lowFuelWarning,
       stars: flight.stars,
       drafts: flight.drafts,
       hits: flight.hits,
@@ -701,7 +784,7 @@ function getSnapshot() {
       ghostFrames: flight.ghostPlayback?.samples?.length || 0,
       ghostEnabled: state.ghostEnabled,
       rngSeed: flight.seed,
-      cloudSignature: flight.clouds
+      cloudSignature: flight.initialCloudSignature || flight.clouds
         .slice(0, 3)
         .map((cloud) => `${roundNumber(cloud.x)},${roundNumber(cloud.altitude)},${roundNumber(cloud.r)}`)
         .join("|"),
@@ -711,8 +794,14 @@ function getSnapshot() {
   if (state.result) {
     snapshot.result = {
       routeIndex: state.result.routeIndex,
-      title: resultTitle.textContent,
-      body: resultBody.textContent,
+      title: state.result.title || resultTitle.textContent,
+      summary: state.result.summary || resultSummary?.textContent || "",
+      body: state.result.body || resultBody.textContent,
+      notes: state.result.notes || [],
+      continueRouteIndex: state.result.continueRouteIndex,
+      continueRouteId: state.result.continueRouteId,
+      continueFrom: state.result.continueFrom,
+      continueTo: state.result.continueTo,
     };
   }
 
@@ -743,10 +832,12 @@ function renderDebugPanel() {
     `worldX        ${flight.worldX} / ${flight.routeDistance}`,
     `remaining     ${flight.remaining}`,
     `altitude      ${flight.altitude}`,
+    `band          ${flight.altitudeBandLabel}`,
     `cameraAlt     ${flight.cameraAltitude}`,
     `verticalSpeed ${flight.verticalSpeed}`,
     `speed         ${flight.speed}`,
-    `systems       thr ${flight.throttleTarget} / flaps ${flight.flaps} / airbrake ${flight.airbrake ? "on" : "off"}`,
+    `systems       thr ${flight.throttleTarget} / flaps ${flight.flaps} / brake ${flight.airbrake ? "on" : "off"} / input ${flight.left ? "L" : "-"}${flight.right ? "R" : "-"}`,
+    `fuel          ${flight.fuelPct}% (${flight.fuel}/${flight.maxFuel}) / ${flight.engineOut ? "engine-out" : flight.lowFuelWarning ? "low" : "stable"}`,
     `sun           ${flight.sunPct}%`,
     `nightRatio    ${flight.nightRatio}`,
     `spaceRatio    ${flight.spaceRatio}`,
@@ -761,6 +852,29 @@ function renderDebugPanel() {
     `ghost         ${flight.ghostEnabled ? (flight.ghostAvailable ? `${flight.ghostSlot || "best"} / ${flight.ghostTime}s / ${flight.ghostFrames} frames` : "none") : "hidden"}`,
     `stars/drafts  ${flight.stars} / ${flight.drafts}`,
   ].join("\n");
+}
+
+function normalizeDebugActor(actor, flight) {
+  if (!actor || typeof actor !== "object") {
+    return null;
+  }
+  const type = typeof actor.type === "string" ? actor.type : "star";
+  return {
+    type,
+    band: typeof actor.band === "string" ? actor.band : "mid",
+    x: Number.isFinite(actor.x) ? Number(actor.x) : flight.worldX + 160,
+    altitude: Number.isFinite(actor.altitude) ? Number(actor.altitude) : flight.altitude,
+    r: Number.isFinite(actor.r) ? Number(actor.r) : 12,
+    rx: Number.isFinite(actor.rx) ? Number(actor.rx) : 60,
+    ry: Number.isFinite(actor.ry) ? Number(actor.ry) : 72,
+    strength: Number.isFinite(actor.strength) ? Number(actor.strength) : 1,
+    speedBonus: Number.isFinite(actor.speedBonus) ? Number(actor.speedBonus) : 160,
+    lift: Number.isFinite(actor.lift) ? Number(actor.lift) : 20,
+    damage: Number.isFinite(actor.damage) ? Number(actor.damage) : 10,
+    amount: Number.isFinite(actor.amount) ? Number(actor.amount) : 18,
+    phase: Number.isFinite(actor.phase) ? Number(actor.phase) : 0,
+    collected: Boolean(actor.collected),
+  };
 }
 
 function setDebugEnabled(enabled, options = {}) {
@@ -782,7 +896,7 @@ function debugPatchFlight(patch = {}) {
     return getSnapshot();
   }
   const flight = state.flight;
-  const numericKeys = ["worldX", "altitude", "cameraAltitude", "vy", "speed", "sun", "stars", "drafts", "hits", "groundBounce", "groundBounceVelocity", "throttle", "throttleTarget"];
+  const numericKeys = ["worldX", "altitude", "cameraAltitude", "vy", "speed", "sun", "fuel", "maxFuel", "stars", "drafts", "hits", "groundBounce", "groundBounceVelocity", "throttle", "throttleTarget", "spawnCursor"];
   numericKeys.forEach((key) => {
     if (Number.isFinite(patch[key])) {
       flight[key] = Number(patch[key]);
@@ -794,6 +908,12 @@ function debugPatchFlight(patch = {}) {
   if (typeof patch.grounded === "boolean") {
     flight.grounded = patch.grounded;
   }
+  if (typeof patch.engineOut === "boolean") {
+    flight.engineOut = patch.engineOut;
+  }
+  if (typeof patch.hadEngineOut === "boolean") {
+    flight.hadEngineOut = patch.hadEngineOut;
+  }
   if (typeof patch.runwayState === "string" || patch.runwayState === null) {
     flight.runwayState = patch.runwayState;
   }
@@ -803,12 +923,26 @@ function debugPatchFlight(patch = {}) {
   if (typeof patch.airbrake === "boolean") {
     state.input.airbrake = patch.airbrake;
   }
+  if (patch.clearActors) {
+    flight.actors = [];
+  }
+  if (Array.isArray(patch.actors)) {
+    flight.actors = patch.actors.map((actor) => normalizeDebugActor(actor, flight)).filter(Boolean);
+  }
   flight.worldX = clamp(flight.worldX, departureRunwayStart(flight) - 40, arrivalRunwayEnd(flight) + 80);
   flight.altitude = Math.max(flight.planeBottomOffset + 2, flight.altitude);
   flight.speed = clamp(flight.speed, 0, flight.maxSpeed);
   flight.throttle = clampThrottle(flight.throttle);
   flight.throttleTarget = clampThrottle(flight.throttleTarget);
   flight.sun = clamp(flight.sun, 0, flight.maxSun);
+  flight.maxFuel = Math.max(1, flight.maxFuel);
+  flight.fuel = clamp(flight.fuel, 0, flight.maxFuel);
+  if (flight.fuel <= 0.01) {
+    flight.fuel = 0;
+    flight.engineOut = true;
+    flight.hadEngineOut = true;
+  }
+  flight.lowFuelWarning = flight.fuel > 0 && flight.fuel <= flight.maxFuel * 0.18;
   updateHud();
   renderDebugPanel();
   return getSnapshot();
@@ -841,11 +975,14 @@ function setScreen(name) {
   touchControls.classList.toggle("hidden", name !== "flight");
   if (name !== "map") {
     state.mapTransition = null;
+    state.mapHoverRoute = -1;
+    state.mapHoverRegion = "";
+    state.mapRegionPop = {};
+    state.mapRegionStars = [];
   }
   if (name === "map") {
     renderRoutePills();
     updateRouteInfo();
-    renderHangarUpgrades();
   }
   updateGhostToggleLabel();
   updateGhostControls();
@@ -856,10 +993,187 @@ function getRoute(index) {
   return ROUTES[index];
 }
 
+function routeCodeLabel(route) {
+  return `${AIRPORTS[route.from].code} -> ${AIRPORTS[route.to].code}`;
+}
+
+function routeNameLabel(route) {
+  return `${AIRPORTS[route.from].name} -> ${AIRPORTS[route.to].name}`;
+}
+
+function normalizeLongitude(lon) {
+  if (lon > 180) {
+    return lon - 360;
+  }
+  if (lon < -180) {
+    return lon + 360;
+  }
+  return lon;
+}
+
+function interpolateLongitude(fromLon, toLon, t) {
+  let delta = toLon - fromLon;
+  if (delta > 180) {
+    delta -= 360;
+  } else if (delta < -180) {
+    delta += 360;
+  }
+  return normalizeLongitude(fromLon + delta * t);
+}
+
+function haversineKm(a, b) {
+  const radius = 6371;
+  const lat1 = (a.lat * Math.PI) / 180;
+  const lat2 = (b.lat * Math.PI) / 180;
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const dLon = ((b.lon - a.lon) * Math.PI) / 180;
+  const hav = Math.sin(dLat * 0.5) ** 2
+    + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon * 0.5) ** 2;
+  const arc = 2 * Math.atan2(Math.sqrt(hav), Math.sqrt(1 - hav));
+  return radius * arc;
+}
+
+function flightGeoPosition(flight, reason) {
+  const route = ROUTES[flight.routeIndex];
+  if (reason === "arrived") {
+    const airport = AIRPORTS[route.to];
+    return { lat: airport.lat, lon: airport.lon };
+  }
+  const from = AIRPORTS[route.from];
+  const to = AIRPORTS[route.to];
+  const progress = clamp(routeProgress(flight), 0, 1);
+  return {
+    lat: lerp(from.lat, to.lat, progress),
+    lon: interpolateLongitude(from.lon, to.lon, progress),
+  };
+}
+
+function findContinueSuggestion(flight, reason) {
+  const position = flightGeoPosition(flight, reason);
+  const rankedAirports = Object.values(AIRPORTS)
+    .map((airport) => ({
+      airport,
+      distanceKm: haversineKm(position, airport),
+    }))
+    .sort((a, b) => a.distanceKm - b.distanceKm);
+
+  for (const candidate of rankedAirports) {
+    const routeIndex = ROUTES.findIndex((route, index) => index <= state.unlockedRoute && route.from === candidate.airport.code);
+    if (routeIndex !== -1) {
+      const route = ROUTES[routeIndex];
+      return {
+        airportCode: candidate.airport.code,
+        airportName: candidate.airport.name,
+        distanceKm: Math.round(candidate.distanceKm),
+        routeIndex,
+        routeId: route.id,
+        fromCode: route.from,
+        fromName: AIRPORTS[route.from].name,
+        toCode: route.to,
+        toName: AIRPORTS[route.to].name,
+      };
+    }
+  }
+
+  return null;
+}
+
+function fallbackContinueSuggestion(flight) {
+  const route = ROUTES[flight.routeIndex];
+  return {
+    airportCode: route.from,
+    airportName: AIRPORTS[route.from].name,
+    distanceKm: 0,
+    routeIndex: flight.routeIndex,
+    routeId: route.id,
+    fromCode: route.from,
+    fromName: AIRPORTS[route.from].name,
+    toCode: route.to,
+    toName: AIRPORTS[route.to].name,
+    isFallback: true,
+  };
+}
+
+function resolveContinueSuggestion(flight, reason) {
+  return findContinueSuggestion(flight, reason) || fallbackContinueSuggestion(flight);
+}
+
+function resultReasonSummary(reason, flight, route) {
+  if (reason === "arrived") {
+    return flight.hadEngineOut
+      ? `途中一度燃油見底，但你還是把飛機帶進 ${AIRPORTS[route.to].code}。`
+      : `已經在 ${AIRPORTS[route.to].code} 跑道滑停，這段航班順利完成。`;
+  }
+  if (reason === "crash") {
+    return flight.hadEngineOut
+      ? "燃油耗盡後失去推力，最後沒有把滑翔線穩住。"
+      : "高度或接地姿態沒有控制好，最後墜海或重落。";
+  }
+  if (reason === "takeoff_overrun") {
+    return flight.engineOut
+      ? "滑跑途中推力中斷，跑道用完前還是沒能離地。"
+      : "跑道用完了，但起飛速度還是不足。";
+  }
+  if (reason === "landing_overrun") {
+    return "雖然已經接地，但跑道不夠長，最後還是衝出了跑道。";
+  }
+  if (reason === "missed") {
+    return flight.hadEngineOut
+      ? "你一路滑翔到機場附近，但最後還是沒有對準跑道。"
+      : "你飛過了機場，但最後沒有把跑道對正。";
+  }
+  return "這趟航班沒有順利完成。";
+}
+
+function renderResultSummary(summary) {
+  if (resultSummary) {
+    resultSummary.textContent = summary;
+  }
+}
+
+function renderResultStats(items) {
+  if (!resultStats) {
+    return;
+  }
+  resultStats.innerHTML = items.map((item) => `
+    <article class="result-stat">
+      <span>${item.label}</span>
+      <strong>${item.value}</strong>
+      <small>${item.meta}</small>
+    </article>
+  `).join("");
+}
+
+function renderResultNotes(notes) {
+  if (!resultNotes) {
+    return;
+  }
+  const visible = notes.length > 0;
+  resultNotes.classList.toggle("hidden", !visible);
+  resultNotes.innerHTML = visible
+    ? notes.map((note) => `<li>${note}</li>`).join("")
+    : "";
+}
+
+function renderContinuePanel(continueSuggestion, currentRouteIndex) {
+  if (!resultContinuePanel || !continueFlightButton || !resultContinueSummary) {
+    return;
+  }
+  const sameRoute = continueSuggestion.routeIndex === currentRouteIndex;
+  const sameAirport = continueSuggestion.airportCode === continueSuggestion.fromCode;
+  const airportLabel = sameAirport
+    ? `${continueSuggestion.airportName} ${continueSuggestion.airportCode}`
+    : `${continueSuggestion.airportName} ${continueSuggestion.airportCode}（離目前約 ${continueSuggestion.distanceKm} km）`;
+  resultContinueSummary.textContent = sameRoute
+    ? `目前最近可續飛的航班還是這一段，會從 ${continueSuggestion.fromName} ${continueSuggestion.fromCode} 再出發，飛往 ${continueSuggestion.toName} ${continueSuggestion.toCode}。`
+    : `預設從最近可續飛的機場 ${airportLabel} 出發，下一段會飛往 ${continueSuggestion.toName} ${continueSuggestion.toCode}。`;
+  continueFlightButton.textContent = `繼續飛行：${continueSuggestion.fromCode} -> ${continueSuggestion.toCode}`;
+  continueFlightButton.disabled = false;
+}
+
 function selectRoute(index) {
   state.selectedRoute = clamp(index, 0, ROUTES.length - 1);
   renderRoutePills();
-  renderHangarUpgrades();
   updateRouteInfo();
   updateGhostToggleLabel();
   playSfx("tap");
@@ -881,57 +1195,6 @@ function renderRoutePills() {
     pill.textContent = locked ? `${from.code} -> ${to.code} (鎖定)` : `${from.code} -> ${to.code}`;
     pill.addEventListener("click", () => selectRoute(index));
     routePills.appendChild(pill);
-  });
-}
-
-function renderHangarUpgrades() {
-  if (!upgradeList || !hangarParts) {
-    return;
-  }
-  const effects = getHangarEffects();
-  hangarParts.textContent = `零件: ${state.hangar.parts}`;
-  upgradeList.innerHTML = "";
-  Object.values(UPGRADE_CONFIG).forEach((config) => {
-    const level = state.hangar.upgrades[config.id];
-    const maxed = level >= config.maxLevel;
-    const cost = getUpgradeCost(config.id, level);
-    const disabled = maxed || state.hangar.parts < cost || state.mapTransition !== null;
-    const item = document.createElement("div");
-    item.className = "upgrade-item";
-
-    const top = document.createElement("div");
-    top.className = "upgrade-top";
-
-    const name = document.createElement("p");
-    name.className = "upgrade-name";
-    name.textContent = config.name;
-
-    const lv = document.createElement("p");
-    lv.className = "upgrade-level";
-    lv.textContent = `Lv.${level}/${config.maxLevel}`;
-
-    const desc = document.createElement("p");
-    desc.className = "upgrade-desc";
-    if (config.id === "engine") {
-      desc.textContent = `${config.desc} · 目前 x${effects.speedMultiplier.toFixed(2)}`;
-    } else if (config.id === "tank") {
-      desc.textContent = `${config.desc} · 升力 x${effects.glideLift.toFixed(2)}`;
-    } else {
-      desc.textContent = `${config.desc} · 夕照保留 x${effects.sunsetPreservation.toFixed(2)}`;
-    }
-
-    const button = document.createElement("button");
-    button.className = "upgrade-btn";
-    button.disabled = disabled;
-    button.textContent = maxed ? "已滿級" : `升級 -${cost} 零件`;
-    button.addEventListener("click", () => tryUpgrade(config.id));
-
-    top.appendChild(name);
-    top.appendChild(lv);
-    item.appendChild(top);
-    item.appendChild(desc);
-    item.appendChild(button);
-    upgradeList.appendChild(item);
   });
 }
 
@@ -967,31 +1230,10 @@ function updateGhostControls() {
       resultGhostSummary.textContent = [
         best ? `最佳鬼影 ${best.time.toFixed(1)} 秒` : "",
         last ? `最近回放 ${last.time.toFixed(1)} 秒` : "",
-        `目前再飛一次會使用 ${ghostSlotLabel(activeSlot)}`,
+        `目前鬼影設定：${ghostSlotLabel(activeSlot)}`,
       ].filter(Boolean).join(" · ");
     }
   }
-}
-
-function tryUpgrade(id) {
-  const config = UPGRADE_CONFIG[id];
-  if (!config) {
-    return;
-  }
-  const level = state.hangar.upgrades[id];
-  if (level >= config.maxLevel) {
-    return;
-  }
-  const cost = getUpgradeCost(id, level);
-  if (state.hangar.parts < cost || state.mapTransition) {
-    return;
-  }
-  state.hangar.parts -= cost;
-  state.hangar.upgrades[id] += 1;
-  saveHangar();
-  renderHangarUpgrades();
-  updateRouteInfo();
-  playSfx("star");
 }
 
 function updateRouteInfo() {
@@ -1004,17 +1246,86 @@ function updateRouteInfo() {
   const best = state.bestRuns[route.id];
   const ghost = getGhostRun(route.id);
   const ghostRecord = getGhostRecord(route.id);
-  const upgrades = state.hangar.upgrades;
+  const ghostLabel = ghost
+    ? `${state.ghostEnabled ? ghostSlotLabel(getGhostSlot(route.id)) : "鬼影已隱藏"}`
+    : "尚未建立";
+  const ghostMeta = ghost
+    ? `${ghost.time.toFixed(1)} 秒`
+    : "完成一次成功降落";
+  const bestLabel = best
+    ? `${best.time.toFixed(1)} 秒`
+    : "尚無紀錄";
+  const bestMeta = best
+    ? `${best.stars} 星`
+    : "等你刷新";
+  const cruiseNote = route.difficulty >= 4
+    ? "低空撿星、中空吃風流、高空追噴流；三條高度帶都會刷出燃油補給，長航段要提早選線。"
+    : route.difficulty >= 3
+      ? "中段開始主動換線：低空賺星，中空穩定，高空衝速度，油量偏低時先往補給靠。"
+      : "先練習三條高度帶：低空有星線，中空最穩，高空最刺激，也都可能刷出燃油補給。";
   routeTitle.textContent = `${from.name} -> ${to.name}`;
-  routeMeta.textContent = [
-    `航程 ${route.distance} km`,
-    `難度 ${stars}`,
-    `改裝 E${upgrades.engine}/W${upgrades.tank}/F${upgrades.frame}`,
-    best ? `最快 ${best.time.toFixed(1)} 秒 · ${best.stars} 星` : "",
-    ghost ? `${state.ghostEnabled ? ghostSlotLabel(getGhostSlot(route.id)) : "鬼影已隱藏"} ${ghost.time.toFixed(1)} 秒` : "",
-    ghostRecord?.last ? `最近回放 ${ghostRecord.last.time.toFixed(1)} 秒` : "",
-  ].filter(Boolean).join(" · ");
+  if (routeFromCode) {
+    routeFromCode.textContent = from.code;
+  }
+  if (routeFromName) {
+    routeFromName.textContent = from.name;
+  }
+  if (routeToCode) {
+    routeToCode.textContent = to.code;
+  }
+  if (routeToName) {
+    routeToName.textContent = to.name;
+  }
+  routeMeta.innerHTML = [
+    {
+      label: "航程",
+      value: `${route.realDistanceKm || route.distance} km`,
+      meta: `真實世界航距`,
+    },
+    {
+      label: "難度",
+      value: stars,
+      meta: `第 ${route.difficulty} 級航班`,
+    },
+    {
+      label: "最佳",
+      value: bestLabel,
+      meta: bestMeta,
+    },
+    {
+      label: "鬼影",
+      value: ghostLabel,
+      meta: ghostRecord?.last ? `最近 ${ghostRecord.last.time.toFixed(1)} 秒` : ghostMeta,
+    },
+  ].map((item) => `
+    <article class="briefing-stat">
+      <span>${item.label}</span>
+      <strong>${item.value}</strong>
+      <small>${item.meta}</small>
+    </article>
+  `).join("");
   routeDesc.textContent = route.desc;
+  if (routeBriefing) {
+    routeBriefing.innerHTML = [
+      {
+        label: "起飛",
+        text: `先沿 ${from.code} 跑道加速，速度足夠再抬頭離地。`,
+      },
+      {
+        label: "巡航",
+        text: cruiseNote,
+      },
+      {
+        label: "進場",
+        text: `提早對正 ${to.code} 跑道，flare 後接地並滑停。`,
+      },
+    ].map((item) => `
+      <div class="briefing-step">
+        <span class="briefing-step-label">${item.label}</span>
+        <span class="briefing-step-text">${item.text}</span>
+      </div>
+    `).join("");
+  }
   routeMission.innerHTML = "";
   missionItems(route).forEach((text) => {
     const li = document.createElement("li");
@@ -1044,6 +1355,80 @@ function airportPixel(id) {
     x: airport.x * mapCanvas.width,
     y: airport.y * mapCanvas.height,
   };
+}
+
+function regionStickerLayout(sticker, width, height) {
+  return {
+    x: sticker.x * width,
+    y: sticker.y * height,
+    cardWidth: Math.max(104, width * 0.115),
+    cardHeight: Math.max(44, height * 0.1),
+    angle: (hash1(sticker.x * 10 + sticker.y * 10) - 0.5) * 0.18,
+  };
+}
+
+function regionStickerHitTest(point) {
+  const width = mapCanvas.width;
+  const height = mapCanvas.height;
+  for (const sticker of MAP_REGION_STICKERS) {
+    const layout = regionStickerLayout(sticker, width, height);
+    const dx = Math.abs(point.x - layout.x);
+    const dy = Math.abs(point.y - layout.y);
+    if (dx <= layout.cardWidth * 0.55 && dy <= layout.cardHeight * 0.62) {
+      return sticker.id;
+    }
+  }
+  return "";
+}
+
+function triggerRegionStickerBurst(regionId) {
+  if (!regionId) {
+    return;
+  }
+  const sticker = MAP_REGION_STICKERS.find((entry) => entry.id === regionId);
+  if (!sticker) {
+    return;
+  }
+  const { x, y, cardWidth, cardHeight } = regionStickerLayout(sticker, mapCanvas.width, mapCanvas.height);
+  state.mapRegionPop[regionId] = 1;
+  for (let i = 0; i < 10; i += 1) {
+    const angle = (-Math.PI * 0.9) + (i / 9) * Math.PI * 1.1 + (hash1(i + x * 0.001) - 0.5) * 0.28;
+    const speed = 24 + hash1(y * 0.01 + i * 0.4) * 36;
+    state.mapRegionStars.push({
+      x: x + (hash1(i * 0.71 + x) - 0.5) * cardWidth * 0.34,
+      y: y - cardHeight * 0.14 + (hash1(i * 0.31 + y) - 0.5) * 8,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 22,
+      life: 0.95 + hash1(i * 0.53 + 2.1) * 0.35,
+      maxLife: 0.95 + hash1(i * 0.53 + 2.1) * 0.35,
+      size: 3 + hash1(i * 0.22 + 9.4) * 4,
+      color: i % 2 === 0 ? sticker.accent : blendHex(sticker.accent, "#fff7d8", 0.45),
+      twinkle: hash1(i * 0.91 + 7.2) * Math.PI * 2,
+    });
+  }
+}
+
+function updateMapEffects(dt) {
+  Object.keys(state.mapRegionPop).forEach((regionId) => {
+    const next = Math.max(0, state.mapRegionPop[regionId] - dt * 2.2);
+    if (next <= 0) {
+      delete state.mapRegionPop[regionId];
+      return;
+    }
+    state.mapRegionPop[regionId] = next;
+  });
+  state.mapRegionStars = state.mapRegionStars.filter((star) => {
+    star.life -= dt;
+    if (star.life <= 0) {
+      return false;
+    }
+    star.x += star.vx * dt;
+    star.y += star.vy * dt;
+    star.vx *= 0.985;
+    star.vy += 18 * dt;
+    star.vy *= 0.986;
+    return true;
+  });
 }
 
 function routeCurve(route) {
@@ -1139,64 +1524,1103 @@ function drawBlob(ctx, points, fillStyle, strokeStyle) {
   }
 }
 
+function sketchPoint(point, seed, jitter = 6) {
+  const angle = hash1(seed) * Math.PI * 2;
+  const radius = (hash1(seed + 0.37) - 0.5) * jitter;
+  return {
+    x: point[0] + Math.cos(angle) * radius,
+    y: point[1] + Math.sin(angle) * radius,
+  };
+}
+
+function traceSketchLoop(ctx, points, seed, jitter = 6) {
+  if (points.length < 2) {
+    return;
+  }
+  const sketched = points.map((point, index) => sketchPoint(point, seed + index * 0.91, jitter));
+  ctx.beginPath();
+  ctx.moveTo((sketched[0].x + sketched[1].x) * 0.5, (sketched[0].y + sketched[1].y) * 0.5);
+  for (let i = 1; i < sketched.length; i += 1) {
+    const current = sketched[i];
+    const next = sketched[(i + 1) % sketched.length];
+    const midX = (current.x + next.x) * 0.5;
+    const midY = (current.y + next.y) * 0.5;
+    ctx.quadraticCurveTo(current.x, current.y, midX, midY);
+  }
+  ctx.closePath();
+}
+
+function drawSketchLandmass(ctx, points, options) {
+  const {
+    fill,
+    shadow,
+    stroke,
+    scribble,
+    seed,
+  } = options;
+  const shadowPoints = points.map(([x, y]) => [x + 5, y + 7]);
+  traceSketchLoop(ctx, shadowPoints, seed + 12.4, 4);
+  ctx.fillStyle = shadow;
+  ctx.fill();
+
+  traceSketchLoop(ctx, points, seed, 5);
+  ctx.fillStyle = fill;
+  ctx.fill();
+
+  if (scribble) {
+    ctx.save();
+    traceSketchLoop(ctx, points, seed, 5);
+    ctx.clip();
+    ctx.strokeStyle = scribble;
+    ctx.lineWidth = 2;
+    for (let i = -1; i < 7; i += 1) {
+      const y = points[0][1] - 20 + i * 26;
+      ctx.beginPath();
+      ctx.moveTo(-40, y);
+      ctx.bezierCurveTo(120, y + 8, 260, y - 10, 420, y + 6);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  traceSketchLoop(ctx, points, seed + 1.7, 4);
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 3;
+  ctx.lineJoin = "round";
+  ctx.stroke();
+}
+
+function drawMapCloud(ctx, x, y, scale = 1) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+  ctx.fillStyle = "rgba(255, 255, 255, 0.88)";
+  ctx.beginPath();
+  ctx.arc(-18, 0, 16, 0, Math.PI * 2);
+  ctx.arc(0, -8, 20, 0, Math.PI * 2);
+  ctx.arc(22, 0, 14, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(99, 132, 155, 0.32)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(-8, 1, 1.8, 0, Math.PI * 2);
+  ctx.arc(8, 1, 1.8, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(0, 9, 8, 0.1 * Math.PI, 0.9 * Math.PI);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawMapWave(ctx, x, y, width, color, lift = 0) {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(x - width * 0.5, y);
+  ctx.bezierCurveTo(
+    x - width * 0.22,
+    y - 6 - lift,
+    x - width * 0.08,
+    y - 6 - lift,
+    x + width * 0.1,
+    y,
+  );
+  ctx.bezierCurveTo(
+    x + width * 0.28,
+    y + 6 + lift,
+    x + width * 0.4,
+    y + 6 + lift,
+    x + width * 0.5,
+    y,
+  );
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawMapDoodleIcon(ctx, kind, x, y, size, fill = "#fffdf3", stroke = "#35506b") {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = stroke;
+  ctx.fillStyle = fill;
+  ctx.lineWidth = Math.max(1.6, size * 0.12);
+
+  switch (kind) {
+    case "pine":
+      ctx.beginPath();
+      ctx.moveTo(0, -size * 0.9);
+      ctx.lineTo(size * 0.55, -size * 0.16);
+      ctx.lineTo(size * 0.24, -size * 0.16);
+      ctx.lineTo(size * 0.7, size * 0.32);
+      ctx.lineTo(size * 0.28, size * 0.32);
+      ctx.lineTo(size * 0.46, size * 0.78);
+      ctx.lineTo(-size * 0.46, size * 0.78);
+      ctx.lineTo(-size * 0.28, size * 0.32);
+      ctx.lineTo(-size * 0.7, size * 0.32);
+      ctx.lineTo(-size * 0.24, -size * 0.16);
+      ctx.lineTo(-size * 0.55, -size * 0.16);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      break;
+    case "palm":
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.08, size * 0.82);
+      ctx.quadraticCurveTo(-size * 0.18, size * 0.18, size * 0.08, -size * 0.28);
+      ctx.stroke();
+      for (let i = -1; i <= 1; i += 1) {
+        ctx.beginPath();
+        ctx.moveTo(size * 0.05, -size * 0.22);
+        ctx.quadraticCurveTo(size * 0.38 * i, -size * (0.76 + Math.abs(i) * 0.08), size * 0.68 * i, -size * 0.3);
+        ctx.stroke();
+      }
+      break;
+    case "sun":
+      for (let i = 0; i < 8; i += 1) {
+        const angle = (Math.PI * 2 * i) / 8;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(angle) * size * 0.78, Math.sin(angle) * size * 0.78);
+        ctx.lineTo(Math.cos(angle) * size, Math.sin(angle) * size);
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.arc(0, 0, size * 0.52, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      break;
+    case "leaf":
+      ctx.beginPath();
+      ctx.moveTo(0, -size * 0.9);
+      ctx.bezierCurveTo(size * 0.72, -size * 0.56, size * 0.7, size * 0.34, 0, size * 0.9);
+      ctx.bezierCurveTo(-size * 0.7, size * 0.34, -size * 0.72, -size * 0.56, 0, -size * 0.9);
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, -size * 0.72);
+      ctx.lineTo(0, size * 0.64);
+      ctx.stroke();
+      break;
+    case "heart":
+      ctx.beginPath();
+      ctx.moveTo(0, size * 0.88);
+      ctx.bezierCurveTo(size * 0.92, size * 0.28, size * 0.92, -size * 0.5, 0, -size * 0.12);
+      ctx.bezierCurveTo(-size * 0.92, -size * 0.5, -size * 0.92, size * 0.28, 0, size * 0.88);
+      ctx.fill();
+      ctx.stroke();
+      break;
+    case "shell":
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.88, size * 0.66);
+      ctx.quadraticCurveTo(0, -size * 0.92, size * 0.88, size * 0.66);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      for (let i = -2; i <= 2; i += 1) {
+        ctx.beginPath();
+        ctx.moveTo(0, -size * 0.52);
+        ctx.lineTo(i * size * 0.22, size * 0.56);
+        ctx.stroke();
+      }
+      break;
+    case "crown":
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.82, size * 0.68);
+      ctx.lineTo(-size * 0.6, -size * 0.24);
+      ctx.lineTo(-size * 0.12, size * 0.1);
+      ctx.lineTo(0, -size * 0.56);
+      ctx.lineTo(size * 0.12, size * 0.1);
+      ctx.lineTo(size * 0.6, -size * 0.24);
+      ctx.lineTo(size * 0.82, size * 0.68);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      break;
+    case "star": {
+      ctx.beginPath();
+      for (let i = 0; i < 10; i += 1) {
+        const angle = -Math.PI / 2 + (Math.PI * i) / 5;
+        const radius = i % 2 === 0 ? size : size * 0.44;
+        const px = Math.cos(angle) * radius;
+        const py = Math.sin(angle) * radius;
+        if (i === 0) {
+          ctx.moveTo(px, py);
+        } else {
+          ctx.lineTo(px, py);
+        }
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      break;
+    }
+    case "tulip":
+      ctx.beginPath();
+      ctx.moveTo(0, -size * 0.74);
+      ctx.lineTo(size * 0.24, -size * 0.1);
+      ctx.lineTo(size * 0.56, -size * 0.44);
+      ctx.lineTo(size * 0.6, size * 0.18);
+      ctx.quadraticCurveTo(0, size * 0.92, -size * 0.6, size * 0.18);
+      ctx.lineTo(-size * 0.56, -size * 0.44);
+      ctx.lineTo(-size * 0.24, -size * 0.1);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, size * 0.22);
+      ctx.lineTo(0, size * 0.96);
+      ctx.stroke();
+      break;
+    case "pyramid":
+      ctx.beginPath();
+      ctx.moveTo(0, -size * 0.88);
+      ctx.lineTo(size * 0.88, size * 0.76);
+      ctx.lineTo(-size * 0.88, size * 0.76);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.4, size * 0.16);
+      ctx.lineTo(size * 0.4, size * 0.16);
+      ctx.moveTo(-size * 0.56, size * 0.44);
+      ctx.lineTo(size * 0.56, size * 0.44);
+      ctx.stroke();
+      break;
+    case "camel":
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.88, size * 0.48);
+      ctx.lineTo(-size * 0.58, size * 0.48);
+      ctx.quadraticCurveTo(-size * 0.44, -size * 0.2, -size * 0.16, size * 0.16);
+      ctx.quadraticCurveTo(0, -size * 0.5, size * 0.22, size * 0.1);
+      ctx.lineTo(size * 0.62, size * 0.12);
+      ctx.lineTo(size * 0.86, -size * 0.1);
+      ctx.lineTo(size * 0.82, size * 0.2);
+      ctx.lineTo(size * 0.62, size * 0.42);
+      ctx.lineTo(size * 0.38, size * 0.42);
+      ctx.lineTo(size * 0.26, size * 0.88);
+      ctx.moveTo(-size * 0.2, size * 0.42);
+      ctx.lineTo(-size * 0.32, size * 0.88);
+      ctx.moveTo(-size * 0.62, size * 0.42);
+      ctx.lineTo(-size * 0.74, size * 0.88);
+      ctx.stroke();
+      break;
+    case "lotus":
+      for (let i = -1; i <= 1; i += 1) {
+        ctx.beginPath();
+        ctx.moveTo(0, size * 0.72);
+        ctx.quadraticCurveTo(size * 0.28 * i, -size * 0.7, size * 0.5 * i, size * 0.22);
+        ctx.quadraticCurveTo(size * 0.18 * i, size * 0.5, 0, size * 0.72);
+        ctx.fill();
+        ctx.stroke();
+      }
+      break;
+    case "wave":
+      ctx.beginPath();
+      ctx.moveTo(-size, -size * 0.12);
+      ctx.bezierCurveTo(-size * 0.52, -size * 0.7, -size * 0.14, -size * 0.7, size * 0.18, -size * 0.08);
+      ctx.bezierCurveTo(size * 0.48, size * 0.44, size * 0.76, size * 0.44, size, -size * 0.04);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.82, size * 0.34);
+      ctx.bezierCurveTo(-size * 0.4, -size * 0.16, -size * 0.02, -size * 0.16, size * 0.26, size * 0.34);
+      ctx.bezierCurveTo(size * 0.46, size * 0.72, size * 0.7, size * 0.72, size * 0.9, size * 0.3);
+      ctx.stroke();
+      break;
+    case "flower":
+    case "blossom":
+      for (let i = 0; i < 5; i += 1) {
+        const angle = (-Math.PI / 2) + (Math.PI * 2 * i) / 5;
+        ctx.beginPath();
+        ctx.ellipse(Math.cos(angle) * size * 0.42, Math.sin(angle) * size * 0.42, size * 0.26, size * 0.38, angle, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.arc(0, 0, size * 0.22, 0, Math.PI * 2);
+      ctx.fillStyle = stroke;
+      ctx.fill();
+      break;
+    case "ribbon":
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.88, -size * 0.22);
+      ctx.quadraticCurveTo(-size * 0.26, -size * 0.88, 0, 0);
+      ctx.quadraticCurveTo(size * 0.26, -size * 0.88, size * 0.88, -size * 0.22);
+      ctx.quadraticCurveTo(size * 0.3, size * 0.1, 0, 0);
+      ctx.quadraticCurveTo(-size * 0.3, size * 0.1, -size * 0.88, -size * 0.22);
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.16, 0);
+      ctx.lineTo(-size * 0.42, size * 0.92);
+      ctx.lineTo(-size * 0.04, size * 0.54);
+      ctx.moveTo(size * 0.16, 0);
+      ctx.lineTo(size * 0.42, size * 0.92);
+      ctx.lineTo(size * 0.04, size * 0.54);
+      ctx.stroke();
+      break;
+    case "tower":
+      ctx.beginPath();
+      ctx.moveTo(0, -size * 0.88);
+      ctx.lineTo(size * 0.18, -size * 0.52);
+      ctx.lineTo(size * 0.46, -size * 0.52);
+      ctx.lineTo(size * 0.28, -size * 0.2);
+      ctx.lineTo(size * 0.58, -size * 0.2);
+      ctx.lineTo(size * 0.34, size * 0.1);
+      ctx.lineTo(size * 0.22, size * 0.86);
+      ctx.lineTo(-size * 0.22, size * 0.86);
+      ctx.lineTo(-size * 0.34, size * 0.1);
+      ctx.lineTo(-size * 0.58, -size * 0.2);
+      ctx.lineTo(-size * 0.28, -size * 0.2);
+      ctx.lineTo(-size * 0.46, -size * 0.52);
+      ctx.lineTo(-size * 0.18, -size * 0.52);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      break;
+    case "sail":
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.78, size * 0.62);
+      ctx.quadraticCurveTo(0, size * 0.9, size * 0.78, size * 0.62);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, -size * 0.88);
+      ctx.lineTo(0, size * 0.64);
+      ctx.moveTo(0, -size * 0.78);
+      ctx.lineTo(size * 0.6, size * 0.08);
+      ctx.lineTo(0, size * 0.08);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      break;
+    case "fern":
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.08, size * 0.86);
+      ctx.lineTo(size * 0.12, -size * 0.84);
+      ctx.stroke();
+      for (let i = -3; i <= 3; i += 1) {
+        const stemY = i * size * 0.22;
+        ctx.beginPath();
+        ctx.moveTo(0, stemY);
+        ctx.lineTo((i % 2 === 0 ? 1 : -1) * size * 0.42, stemY - size * 0.18);
+        ctx.stroke();
+      }
+      break;
+    default:
+      drawMapDoodleIcon(ctx, "star", 0, 0, size, fill, stroke);
+      break;
+  }
+
+  ctx.restore();
+}
+
+function drawMapSticker(ctx, x, y, radius, fill, stroke, accent) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(-0.08);
+  ctx.fillStyle = "rgba(74, 88, 115, 0.16)";
+  ctx.beginPath();
+  ctx.ellipse(4, 10, radius * 0.88, radius * 0.38, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.beginPath();
+  for (let i = 0; i < 16; i += 1) {
+    const angle = (-Math.PI / 2) + (i / 16) * Math.PI * 2;
+    const r = i % 2 === 0 ? radius : radius * 0.8;
+    const px = Math.cos(angle) * r;
+    const py = Math.sin(angle) * r;
+    if (i === 0) {
+      ctx.moveTo(px, py);
+    } else {
+      ctx.lineTo(px, py);
+    }
+  }
+  ctx.closePath();
+  ctx.fillStyle = fill;
+  ctx.fill();
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  ctx.fillStyle = accent;
+  ctx.beginPath();
+  ctx.arc(0, 0, radius * 0.44, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawMapSparkle(ctx, x, y, size, color, alpha = 1) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = alpha;
+  ctx.lineWidth = Math.max(1.2, size * 0.18);
+  for (let i = 0; i < 4; i += 1) {
+    ctx.rotate(Math.PI / 4);
+    ctx.beginPath();
+    ctx.moveTo(0, -size);
+    ctx.lineTo(0, size);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawMapRegionStarTrail(ctx) {
+  state.mapRegionStars.forEach((star) => {
+    const alpha = clamp(star.life / Math.max(0.001, star.maxLife), 0, 1);
+    ctx.save();
+    ctx.strokeStyle = star.color;
+    ctx.globalAlpha = alpha * 0.26;
+    ctx.lineWidth = Math.max(1, star.size * 0.18);
+    ctx.beginPath();
+    ctx.moveTo(star.x - star.vx * 0.02, star.y - star.vy * 0.02);
+    ctx.lineTo(star.x + star.vx * 0.04, star.y + star.vy * 0.04);
+    ctx.stroke();
+    ctx.restore();
+    drawMapSparkle(
+      ctx,
+      star.x,
+      star.y,
+      star.size * (0.45 + alpha * 0.55),
+      star.color,
+      alpha * (0.42 + 0.28 * Math.sin(state.mapPulse * 8 + star.twinkle)),
+    );
+  });
+}
+
+function drawMapRegionSticker(ctx, sticker, width, height, options = {}) {
+  const { hovered = false, related = false, pop = 0 } = options;
+  const { x, y, cardWidth, cardHeight, angle } = regionStickerLayout(sticker, width, height);
+  const popWave = pop > 0 ? Math.sin((1 - pop) * Math.PI * 1.1) * pop : 0;
+  const lift = (hovered ? -8 - Math.sin(state.mapPulse * 6 + x * 0.01) * 2.4 : related ? -3.5 : 0) - popWave * 10;
+  const scale = (hovered ? 1.06 : related ? 1.03 : 1) + popWave * 0.08;
+  const shimmer = Math.max(hovered ? 0.92 : related ? 0.52 : 0, popWave * 1.1);
+
+  ctx.save();
+  ctx.translate(x, y + lift);
+  ctx.rotate(angle);
+  ctx.scale(scale, scale);
+  ctx.fillStyle = "rgba(97, 111, 132, 0.14)";
+  ctx.beginPath();
+  ctx.ellipse(6, cardHeight * 0.62, cardWidth * 0.46, cardHeight * 0.22, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  drawRoundRectPath(ctx, -cardWidth * 0.5, -cardHeight * 0.5, cardWidth, cardHeight, 18);
+  ctx.fillStyle = sticker.paper;
+  ctx.fill();
+  ctx.strokeStyle = hovered ? "rgba(255,255,255,0.98)" : "rgba(255,255,255,0.92)";
+  ctx.lineWidth = hovered ? 3.5 : 3;
+  ctx.stroke();
+
+  drawRoundRectPath(ctx, -cardWidth * 0.5, -cardHeight * 0.5, cardWidth, cardHeight, 18);
+  ctx.strokeStyle = hovered ? `${sticker.accent}cc` : related ? `${sticker.accent}aa` : `${sticker.accent}88`;
+  ctx.lineWidth = hovered ? 2.2 : 1.5;
+  ctx.stroke();
+
+  if (shimmer > 0) {
+    const wash = ctx.createLinearGradient(-cardWidth * 0.5, -cardHeight * 0.5, cardWidth * 0.5, cardHeight * 0.5);
+    wash.addColorStop(0, "rgba(255,255,255,0)");
+    wash.addColorStop(0.5, `rgba(255,255,255,${0.2 + shimmer * 0.18})`);
+    wash.addColorStop(1, "rgba(255,255,255,0)");
+    drawRoundRectPath(ctx, -cardWidth * 0.5, -cardHeight * 0.5, cardWidth, cardHeight, 18);
+    ctx.fillStyle = wash;
+    ctx.fill();
+  }
+
+  ctx.fillStyle = "rgba(255, 245, 227, 0.92)";
+  drawRoundRectPath(ctx, -cardWidth * 0.5 + 12, -cardHeight * 0.5 - 10, cardWidth * 0.28, 16, 6);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(226, 198, 157, 0.45)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  ctx.fillStyle = sticker.accent;
+  ctx.beginPath();
+  ctx.arc(-cardWidth * 0.28, 0, cardHeight * 0.32, 0, Math.PI * 2);
+  ctx.fill();
+  drawMapDoodleIcon(ctx, sticker.doodle, -cardWidth * 0.28, 0, cardHeight * 0.22, "#fffdf4", "#405668");
+
+  ctx.fillStyle = "#34506a";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.font = `700 ${Math.round(cardHeight * 0.28)}px "Baloo 2", sans-serif`;
+  ctx.fillText(sticker.label, -cardWidth * 0.03, -cardHeight * 0.08);
+  ctx.font = `${Math.round(cardHeight * 0.18)}px "M PLUS Rounded 1c", sans-serif`;
+  ctx.fillStyle = "rgba(67, 94, 118, 0.8)";
+  ctx.fillText(sticker.note, -cardWidth * 0.03, cardHeight * 0.2);
+  ctx.restore();
+
+  if (shimmer > 0) {
+    const sparkleColor = hovered ? sticker.accent : blendHex(sticker.accent, "#fff7d8", 0.45);
+    drawMapSparkle(ctx, x - cardWidth * 0.42, y - cardHeight * 0.5 + lift, 5 + shimmer * 3, sparkleColor, 0.46 + shimmer * 0.34);
+    drawMapSparkle(ctx, x + cardWidth * 0.38, y - cardHeight * 0.44 + lift, 4 + shimmer * 2.5, "#fff8de", 0.4 + shimmer * 0.32);
+    drawMapSparkle(ctx, x + cardWidth * 0.46, y + cardHeight * 0.16 + lift, 3 + shimmer * 1.8, sticker.accent, 0.28 + shimmer * 0.24);
+  }
+}
+
+function drawMapCityBackdrop(ctx, airport, x, y, size, emphasis = 0) {
+  const nightStrength = clamp((emphasis - 0.46) / 0.54, 0, 1);
+  const stroke = blendHex(blendHex(airport.color, "#ffffff", 0.55), "#233247", nightStrength * 0.42);
+  const fill = blendHex(blendHex(airport.color, "#fffaf1", 0.72), "#24374d", nightStrength * 0.52);
+  ctx.save();
+  ctx.translate(x, y + size * 0.2);
+  ctx.globalAlpha = 0.22 + emphasis * 0.2;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = stroke;
+  ctx.fillStyle = fill;
+  ctx.lineWidth = Math.max(1.1, size * 0.11);
+
+  if (nightStrength > 0.02) {
+    const glow = ctx.createRadialGradient(0, 0, size * 0.2, 0, 0, size * 1.7);
+    glow.addColorStop(0, `rgba(31, 48, 76, ${0.18 + nightStrength * 0.18})`);
+    glow.addColorStop(1, "rgba(31, 48, 76, 0)");
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.ellipse(0, size * 0.2, size * 1.7, size * 1.1, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = fill;
+  }
+
+  switch (airport.backdrop) {
+    case "mountains":
+    case "cloud-peaks":
+      ctx.beginPath();
+      ctx.moveTo(-size * 1.5, size * 0.8);
+      ctx.lineTo(-size * 0.82, -size * 0.08);
+      ctx.lineTo(-size * 0.24, size * 0.52);
+      ctx.lineTo(size * 0.28, -size * 0.34);
+      ctx.lineTo(size * 0.92, size * 0.38);
+      ctx.lineTo(size * 1.5, size * 0.8);
+      ctx.stroke();
+      if (airport.backdrop === "cloud-peaks") {
+        drawMapCloud(ctx, 0, -size * 0.58, 0.26);
+      }
+      break;
+    case "coast":
+    case "harbor":
+      drawMapWave(ctx, 0, size * 0.72, size * 2.6, stroke, 0.5);
+      drawMapWave(ctx, -size * 0.24, size * 0.96, size * 2, fill, 0.2);
+      if (airport.backdrop === "harbor") {
+        ctx.beginPath();
+        ctx.moveTo(-size * 0.9, size * 0.62);
+        ctx.lineTo(-size * 0.6, size * 0.1);
+        ctx.lineTo(-size * 0.34, size * 0.62);
+        ctx.moveTo(size * 0.16, size * 0.62);
+        ctx.lineTo(size * 0.16, -size * 0.2);
+        ctx.lineTo(size * 0.48, size * 0.18);
+        ctx.lineTo(size * 0.16, size * 0.18);
+        ctx.stroke();
+      }
+      break;
+    case "aztec":
+      ctx.beginPath();
+      ctx.moveTo(-size * 1.04, size * 0.8);
+      ctx.lineTo(-size * 0.72, size * 0.42);
+      ctx.lineTo(-size * 0.42, size * 0.42);
+      ctx.lineTo(-size * 0.42, size * 0.08);
+      ctx.lineTo(-size * 0.12, size * 0.08);
+      ctx.lineTo(-size * 0.12, -size * 0.22);
+      ctx.lineTo(size * 0.12, -size * 0.22);
+      ctx.lineTo(size * 0.12, size * 0.08);
+      ctx.lineTo(size * 0.42, size * 0.08);
+      ctx.lineTo(size * 0.42, size * 0.42);
+      ctx.lineTo(size * 0.72, size * 0.42);
+      ctx.lineTo(size * 1.04, size * 0.8);
+      ctx.stroke();
+      break;
+    case "skyline":
+    case "bund":
+    case "spires":
+      ctx.beginPath();
+      ctx.moveTo(-size * 1.42, size * 0.8);
+      ctx.lineTo(-size * 1.42, size * 0.12);
+      ctx.lineTo(-size * 1.04, size * 0.12);
+      ctx.lineTo(-size * 1.04, -size * 0.2);
+      ctx.lineTo(-size * 0.62, -size * 0.2);
+      ctx.lineTo(-size * 0.62, size * 0.24);
+      ctx.lineTo(-size * 0.22, size * 0.24);
+      ctx.lineTo(-size * 0.22, -size * 0.46);
+      ctx.lineTo(size * 0.1, -size * 0.46);
+      ctx.lineTo(size * 0.1, size * 0.04);
+      ctx.lineTo(size * 0.48, size * 0.04);
+      ctx.lineTo(size * 0.48, -size * 0.32);
+      ctx.lineTo(size * 0.82, -size * 0.32);
+      ctx.lineTo(size * 0.82, size * 0.18);
+      ctx.lineTo(size * 1.24, size * 0.18);
+      ctx.lineTo(size * 1.24, size * 0.8);
+      ctx.stroke();
+      if (airport.backdrop === "bund") {
+        ctx.beginPath();
+        ctx.arc(size * 0.18, -size * 0.68, size * 0.14, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      break;
+    case "tram-hill":
+      ctx.beginPath();
+      ctx.arc(0, size * 1.2, size * 1.55, Math.PI * 1.12, Math.PI * 1.88);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.86, size * 0.4);
+      ctx.lineTo(-size * 0.22, 0);
+      ctx.lineTo(size * 0.62, 0.34);
+      ctx.lineTo(size * 0.62, size * 0.8);
+      ctx.lineTo(-size * 0.22, size * 0.8);
+      ctx.closePath();
+      ctx.stroke();
+      break;
+    case "clock":
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.22, size * 0.82);
+      ctx.lineTo(-size * 0.22, -size * 0.64);
+      ctx.lineTo(size * 0.22, -size * 0.64);
+      ctx.lineTo(size * 0.22, size * 0.82);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(0, -size * 0.22, size * 0.32, 0, Math.PI * 2);
+      ctx.stroke();
+      break;
+    case "bridge":
+      ctx.beginPath();
+      ctx.moveTo(-size * 1.18, size * 0.74);
+      ctx.lineTo(size * 1.18, size * 0.74);
+      ctx.moveTo(-size * 0.9, size * 0.74);
+      ctx.lineTo(-size * 0.9, -size * 0.12);
+      ctx.moveTo(size * 0.9, size * 0.74);
+      ctx.lineTo(size * 0.9, -size * 0.12);
+      ctx.moveTo(-size * 0.9, -size * 0.12);
+      ctx.quadraticCurveTo(0, -size * 0.94, size * 0.9, -size * 0.12);
+      ctx.stroke();
+      break;
+    case "dunes":
+      drawMapWave(ctx, -size * 0.08, size * 0.56, size * 2.6, stroke, 0.8);
+      drawMapWave(ctx, size * 0.3, size * 0.88, size * 2.2, fill, 0.4);
+      break;
+    case "savanna":
+      ctx.beginPath();
+      ctx.moveTo(0, size * 0.88);
+      ctx.lineTo(0, -size * 0.1);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.86, size * 0.12);
+      ctx.quadraticCurveTo(-size * 0.32, -size * 0.74, 0, -size * 0.28);
+      ctx.quadraticCurveTo(size * 0.32, -size * 0.74, size * 0.86, size * 0.12);
+      ctx.stroke();
+      break;
+    case "arch":
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.92, size * 0.82);
+      ctx.lineTo(-size * 0.92, -size * 0.08);
+      ctx.lineTo(-size * 0.34, -size * 0.08);
+      ctx.quadraticCurveTo(0, -size * 0.8, size * 0.34, -size * 0.08);
+      ctx.lineTo(size * 0.92, -size * 0.08);
+      ctx.lineTo(size * 0.92, size * 0.82);
+      ctx.stroke();
+      break;
+    case "gardens":
+      for (let i = -1; i <= 1; i += 1) {
+        ctx.beginPath();
+        ctx.arc(i * size * 0.52, size * 0.22, size * 0.42, Math.PI, 0);
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.moveTo(-size * 1.12, size * 0.82);
+      ctx.lineTo(size * 1.12, size * 0.82);
+      ctx.stroke();
+      break;
+    case "taipei-tower":
+      ctx.beginPath();
+      ctx.moveTo(0, -size * 0.92);
+      ctx.lineTo(size * 0.12, -size * 0.6);
+      ctx.lineTo(size * 0.28, -size * 0.6);
+      ctx.lineTo(size * 0.18, -size * 0.28);
+      ctx.lineTo(size * 0.4, -size * 0.28);
+      ctx.lineTo(size * 0.22, size * 0.08);
+      ctx.lineTo(size * 0.5, size * 0.08);
+      ctx.lineTo(size * 0.28, size * 0.44);
+      ctx.lineTo(size * 0.14, size * 0.88);
+      ctx.lineTo(-size * 0.14, size * 0.88);
+      ctx.lineTo(-size * 0.28, size * 0.44);
+      ctx.lineTo(-size * 0.5, size * 0.08);
+      ctx.lineTo(-size * 0.22, size * 0.08);
+      ctx.lineTo(-size * 0.4, -size * 0.28);
+      ctx.lineTo(-size * 0.18, -size * 0.28);
+      ctx.lineTo(-size * 0.28, -size * 0.6);
+      ctx.lineTo(-size * 0.12, -size * 0.6);
+      ctx.closePath();
+      ctx.stroke();
+      break;
+    case "gate":
+      ctx.beginPath();
+      ctx.moveTo(-size * 1.02, size * 0.82);
+      ctx.lineTo(-size * 1.02, -size * 0.12);
+      ctx.lineTo(-size * 0.52, -size * 0.12);
+      ctx.lineTo(-size * 0.4, -size * 0.52);
+      ctx.lineTo(size * 0.4, -size * 0.52);
+      ctx.lineTo(size * 0.52, -size * 0.12);
+      ctx.lineTo(size * 1.02, -size * 0.12);
+      ctx.lineTo(size * 1.02, size * 0.82);
+      ctx.stroke();
+      break;
+    case "torii":
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.92, -size * 0.32);
+      ctx.lineTo(size * 0.92, -size * 0.32);
+      ctx.moveTo(-size * 0.72, -size * 0.12);
+      ctx.lineTo(size * 0.72, -size * 0.12);
+      ctx.moveTo(-size * 0.5, -size * 0.12);
+      ctx.lineTo(-size * 0.5, size * 0.82);
+      ctx.moveTo(size * 0.5, -size * 0.12);
+      ctx.lineTo(size * 0.5, size * 0.82);
+      ctx.stroke();
+      break;
+    case "opera":
+      for (let i = -1; i <= 1; i += 1) {
+        ctx.beginPath();
+        ctx.moveTo(i * size * 0.4, size * 0.72);
+        ctx.quadraticCurveTo(i * size * 0.64, -size * 0.24, i * size * 0.02, size * 0.02);
+        ctx.stroke();
+      }
+      break;
+    case "volcano":
+      ctx.beginPath();
+      ctx.moveTo(-size * 1.02, size * 0.82);
+      ctx.lineTo(-size * 0.28, -size * 0.18);
+      ctx.lineTo(size * 0.26, -size * 0.18);
+      ctx.lineTo(size * 1.02, size * 0.82);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(0, -size * 0.54, size * 0.2, Math.PI * 0.8, Math.PI * 0.2, true);
+      ctx.stroke();
+      break;
+    default:
+      ctx.beginPath();
+      ctx.arc(0, 0, size * 0.92, 0, Math.PI * 2);
+      ctx.stroke();
+      break;
+  }
+
+  if (nightStrength > 0.02) {
+    const warm = blendHex("#ffd86c", airport.color, 0.18);
+    const cool = blendHex("#bfe7ff", airport.color, 0.35);
+    const pulse = 0.72 + 0.28 * Math.sin(state.mapPulse * 5.4 + x * 0.03 + y * 0.02);
+    const drawLight = (lx, ly, r, color, alpha) => {
+      ctx.save();
+      ctx.globalAlpha = alpha * pulse;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(lx, ly, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    };
+    const drawWindow = (lx, ly, w, h, color, alpha) => {
+      ctx.save();
+      ctx.globalAlpha = alpha * pulse;
+      ctx.fillStyle = color;
+      drawRoundRectPath(ctx, lx - w * 0.5, ly - h * 0.5, w, h, Math.min(w, h) * 0.35);
+      ctx.fill();
+      ctx.restore();
+    };
+    switch (airport.backdrop) {
+      case "skyline":
+      case "spires":
+      case "bund":
+        drawWindow(-size * 0.98, size * 0.26, size * 0.12, size * 0.18, warm, 0.85);
+        drawWindow(-size * 0.44, 0, size * 0.11, size * 0.18, cool, 0.76);
+        drawWindow(size * 0.18, -size * 0.12, size * 0.12, size * 0.18, warm, 0.88);
+        drawWindow(size * 0.76, size * 0.1, size * 0.12, size * 0.18, cool, 0.76);
+        break;
+      case "harbor":
+      case "bridge":
+      case "opera":
+      case "coast":
+        drawLight(-size * 0.84, size * 0.56, size * 0.08, warm, 0.86);
+        drawLight(0, size * 0.46, size * 0.08, cool, 0.7);
+        drawLight(size * 0.84, size * 0.56, size * 0.08, warm, 0.86);
+        if (airport.backdrop === "harbor" || airport.backdrop === "coast") {
+          ctx.save();
+          ctx.strokeStyle = `${warm}aa`;
+          ctx.globalAlpha = 0.28 * pulse;
+          ctx.lineWidth = Math.max(1, size * 0.07);
+          ctx.beginPath();
+          ctx.moveTo(-size * 0.98, size * 0.84);
+          ctx.lineTo(-size * 0.84, size * 1.08);
+          ctx.moveTo(size * 0.02, size * 0.72);
+          ctx.lineTo(size * 0.14, size * 1);
+          ctx.moveTo(size * 0.84, size * 0.84);
+          ctx.lineTo(size * 0.96, size * 1.04);
+          ctx.stroke();
+          ctx.restore();
+        }
+        break;
+      case "clock":
+      case "torii":
+      case "gate":
+      case "taipei-tower":
+      case "arch":
+        drawLight(0, -size * 0.42, size * 0.1, warm, 0.9);
+        drawLight(-size * 0.32, size * 0.24, size * 0.07, cool, 0.74);
+        drawLight(size * 0.32, size * 0.24, size * 0.07, cool, 0.74);
+        break;
+      default:
+        drawLight(-size * 0.3, size * 0.34, size * 0.07, warm, 0.84);
+        drawLight(size * 0.3, size * 0.22, size * 0.07, cool, 0.68);
+        break;
+    }
+  }
+
+  ctx.restore();
+}
+
+function drawMapAirportMarker(ctx, airport, x, y, selected, active, focused = false) {
+  const radius = selected ? 16 : focused ? 13.5 : 12;
+  const fill = active ? blendHex(airport.color, "#fff7f2", 0.26) : "#eef1f4";
+  const stroke = selected ? "rgba(232, 168, 94, 0.88)" : "rgba(255,255,255,0.96)";
+  const accent = active ? airport.color : "#d7dde5";
+  const emphasis = selected ? 1 : focused ? 0.72 : active ? 0.35 : 0.18;
+  drawMapCityBackdrop(ctx, airport, x, y, radius * 1.28, emphasis);
+  if (selected) {
+    ctx.save();
+    ctx.fillStyle = "rgba(245, 188, 99, 0.18)";
+    ctx.beginPath();
+    ctx.arc(x, y, radius + 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  drawMapSticker(ctx, x, y, radius, fill, stroke, accent);
+  drawMapDoodleIcon(
+    ctx,
+    airport.icon || "star",
+    x,
+    y,
+    radius * 0.52,
+    active ? "#fffdf5" : "#f7f8fa",
+    active ? "#36516b" : "#97a3b1",
+  );
+}
+
+function drawMapAirportLabel(ctx, x, y, text, selected) {
+  const paddingX = 11;
+  const paddingY = 6;
+  ctx.save();
+  ctx.font = `${Math.round(12 * (mapCanvas.width / 960))}px "M PLUS Rounded 1c", sans-serif`;
+  const width = ctx.measureText(text).width + paddingX * 2;
+  const height = 24;
+  drawRoundRectPath(ctx, x - width * 0.5, y - 16 - height, width, height, 10);
+  ctx.fillStyle = selected ? "rgba(255, 249, 221, 0.95)" : "rgba(255, 255, 255, 0.92)";
+  ctx.fill();
+  ctx.strokeStyle = selected ? "rgba(227, 171, 93, 0.72)" : "rgba(132, 154, 176, 0.46)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = "#35506b";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, x, y - 16 - height * 0.5 + 1);
+  ctx.restore();
+}
+
+function drawMapCompass(ctx, x, y, size) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(-0.18);
+  ctx.strokeStyle = "rgba(89, 110, 128, 0.48)";
+  ctx.fillStyle = "rgba(255, 251, 239, 0.88)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(0, 0, size, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(0, -size + 4);
+  ctx.lineTo(size * 0.22, 0);
+  ctx.lineTo(0, size - 4);
+  ctx.lineTo(-size * 0.22, 0);
+  ctx.closePath();
+  ctx.fillStyle = "rgba(240, 153, 117, 0.74)";
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "#49647b";
+  ctx.font = `700 ${Math.round(size * 0.8)}px "Baloo 2", sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("N", 0, -size - 10);
+  ctx.restore();
+}
+
+function drawMapWhale(ctx, x, y, scale) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+  ctx.rotate(0.08);
+  ctx.fillStyle = "rgba(103, 164, 198, 0.22)";
+  ctx.beginPath();
+  ctx.ellipse(6, 10, 32, 10, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#7ac4d9";
+  ctx.beginPath();
+  ctx.moveTo(-34, 4);
+  ctx.bezierCurveTo(-20, -10, 14, -12, 38, -2);
+  ctx.bezierCurveTo(42, 4, 36, 12, 18, 13);
+  ctx.bezierCurveTo(4, 18, -18, 15, -34, 4);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(34, -1);
+  ctx.lineTo(48, -11);
+  ctx.lineTo(43, 0);
+  ctx.lineTo(52, 9);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(-10, -2, 2, 0, Math.PI * 2);
+  ctx.fillStyle = "#35506b";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(53, 80, 107, 0.35)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(-14, 6, 10, 0.14 * Math.PI, 0.84 * Math.PI);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawMapSun(ctx, x, y, size) {
+  ctx.save();
+  ctx.translate(x, y);
+  for (let i = 0; i < 12; i += 1) {
+    ctx.rotate(Math.PI / 6);
+    ctx.strokeStyle = "rgba(245, 185, 102, 0.55)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(0, size + 4);
+    ctx.lineTo(0, size + 14);
+    ctx.stroke();
+  }
+  ctx.beginPath();
+  ctx.arc(0, 0, size, 0, Math.PI * 2);
+  ctx.fillStyle = "#ffd978";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(232, 161, 89, 0.68)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawMapRouteThread(ctx, curve, options) {
+  const { selected, hovered, locked, color, pulseColor } = options;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(curve.a.x, curve.a.y);
+  ctx.quadraticCurveTo(curve.c.x, curve.c.y, curve.b.x, curve.b.y);
+  ctx.lineCap = "round";
+  ctx.strokeStyle = locked ? "rgba(153, 166, 176, 0.42)" : "rgba(103, 126, 150, 0.2)";
+  ctx.lineWidth = selected ? 8 : hovered ? 6 : 5;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(curve.a.x, curve.a.y);
+  ctx.quadraticCurveTo(curve.c.x, curve.c.y, curve.b.x, curve.b.y);
+  ctx.setLineDash(locked ? [4, 10] : [10, 9]);
+  ctx.lineDashOffset = selected ? -state.mapPulse * 12 : 0;
+  ctx.strokeStyle = locked ? "rgba(255,255,255,0.55)" : selected ? color : "rgba(255,255,255,0.92)";
+  ctx.lineWidth = selected ? 4 : hovered ? 3.4 : 2.7;
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  if (!locked) {
+    const t = (state.mapPulse * 0.14 + options.index * 0.18) % 1;
+    const p = quadraticPoint(curve, t);
+    drawMapSticker(ctx, p.x, p.y, selected ? 9 : 7, pulseColor, "rgba(255,255,255,0.96)", "#fff7d4");
+  }
+  ctx.restore();
+}
+
 function drawMap() {
   const w = mapCanvas.width;
   const h = mapCanvas.height;
   mapCtx.clearRect(0, 0, w, h);
 
   const route = ROUTES[state.selectedRoute];
-  const ocean = mapCtx.createLinearGradient(0, 0, 0, h);
-  ocean.addColorStop(0, blendHex(route.palette.skyTop, "#ffffff", 0.22));
-  ocean.addColorStop(1, blendHex(route.palette.skyBottom, "#8fd7df", 0.2));
-  mapCtx.fillStyle = ocean;
+  const focusRoute = ROUTES[state.mapHoverRoute >= 0 ? state.mapHoverRoute : state.selectedRoute];
+  const relatedRegions = new Set([
+    AIRPORTS[focusRoute.from]?.region,
+    AIRPORTS[focusRoute.to]?.region,
+  ].filter(Boolean));
+  const focusedAirports = new Set([focusRoute.from, focusRoute.to]);
+  const paper = mapCtx.createLinearGradient(0, 0, 0, h);
+  paper.addColorStop(0, "#fff7ee");
+  paper.addColorStop(0.52, blendHex(route.palette.hillBack || "#fff3e8", "#fffef9", 0.72));
+  paper.addColorStop(1, "#ffeedb");
+  mapCtx.fillStyle = paper;
   mapCtx.fillRect(0, 0, w, h);
 
-  mapCtx.fillStyle = "rgba(255, 255, 255, 0.12)";
-  for (let i = 0; i < 18; i += 1) {
-    mapCtx.fillRect(0, (i / 17) * h, w, 1);
+  for (let i = 0; i < 7; i += 1) {
+    const stainX = (0.08 + i * 0.13) * w;
+    const stainY = (0.12 + (i % 3) * 0.24) * h;
+    const stain = mapCtx.createRadialGradient(stainX, stainY, 8, stainX, stainY, 120 + i * 8);
+    stain.addColorStop(0, i % 2 === 0 ? "rgba(185, 229, 243, 0.24)" : "rgba(255, 218, 174, 0.18)");
+    stain.addColorStop(1, "rgba(255,255,255,0)");
+    mapCtx.fillStyle = stain;
+    mapCtx.beginPath();
+    mapCtx.arc(stainX, stainY, 120 + i * 8, 0, Math.PI * 2);
+    mapCtx.fill();
   }
 
-  const landColor = "#b9d9a6";
-  const stroke = "rgba(76, 120, 86, 0.34)";
-  drawBlob(mapCtx, [
-    [w * 0.11, h * 0.22], [w * 0.18, h * 0.16], [w * 0.27, h * 0.2], [w * 0.31, h * 0.3],
-    [w * 0.26, h * 0.39], [w * 0.2, h * 0.44], [w * 0.13, h * 0.4], [w * 0.09, h * 0.31],
-  ], landColor, stroke);
-  drawBlob(mapCtx, [
-    [w * 0.33, h * 0.2], [w * 0.44, h * 0.15], [w * 0.56, h * 0.18], [w * 0.67, h * 0.23],
-    [w * 0.76, h * 0.31], [w * 0.79, h * 0.4], [w * 0.71, h * 0.47], [w * 0.61, h * 0.51],
-    [w * 0.51, h * 0.48], [w * 0.4, h * 0.43], [w * 0.35, h * 0.34],
-  ], landColor, stroke);
-  drawBlob(mapCtx, [
-    [w * 0.62, h * 0.53], [w * 0.69, h * 0.58], [w * 0.72, h * 0.67], [w * 0.65, h * 0.72],
-    [w * 0.59, h * 0.66], [w * 0.57, h * 0.58],
-  ], landColor, stroke);
-  drawBlob(mapCtx, [
-    [w * 0.83, h * 0.69], [w * 0.9, h * 0.66], [w * 0.95, h * 0.71], [w * 0.93, h * 0.79],
-    [w * 0.86, h * 0.81], [w * 0.81, h * 0.75],
-  ], landColor, stroke);
+  for (let i = 0; i < 22; i += 1) {
+    const y = ((i + 0.5) / 22) * h;
+    drawMapWave(
+      mapCtx,
+      (0.1 + ((i * 37) % 80) / 100) * w,
+      y,
+      42 + (i % 4) * 10,
+      i % 2 === 0 ? "rgba(121, 191, 214, 0.22)" : "rgba(255, 184, 156, 0.14)",
+      (i % 3) * 0.9,
+    );
+  }
+
+  MAP_LANDMASSES.forEach((landmass, index) => {
+    const points = landmass.points.map((point) => [point.x * w, point.y * h]);
+    const fill = blendHex(
+      landmass.fill,
+      index % 3 === 0 ? route.palette.hillMid : route.palette.hillBack,
+      index % 2 === 0 ? 0.38 : 0.28,
+    );
+    drawSketchLandmass(mapCtx, points, {
+      fill,
+      shadow: "rgba(105, 118, 94, 0.12)",
+      stroke: "rgba(95, 111, 88, 0.48)",
+      scribble: index % 2 === 0 ? "rgba(255,255,255,0.22)" : "rgba(118, 149, 120, 0.14)",
+      seed: index * 7.13 + 1.4,
+    });
+  });
+
+  drawMapSun(mapCtx, w * 0.12, h * 0.16, Math.max(18, w * 0.028));
+  drawMapCloud(mapCtx, w * 0.23, h * 0.15, 1.02);
+  drawMapCloud(mapCtx, w * 0.53, h * 0.11, 0.82);
+  drawMapCloud(mapCtx, w * 0.83, h * 0.2, 0.9);
+  drawMapWhale(mapCtx, w * 0.16, h * 0.78, Math.min(1.1, w / 960));
+  drawMapCompass(mapCtx, w * 0.91, h * 0.82, Math.max(18, w * 0.025));
+  MAP_REGION_STICKERS.forEach((sticker) => {
+    drawMapRegionSticker(mapCtx, sticker, w, h, {
+      hovered: state.mapHoverRegion === sticker.id,
+      related: relatedRegions.has(sticker.id),
+      pop: state.mapRegionPop[sticker.id] || 0,
+    });
+  });
+  drawMapRegionStarTrail(mapCtx);
 
   ROUTES.forEach((item, index) => {
     const curve = routeCurve(item);
     const selected = index === state.selectedRoute;
     const hovered = index === state.mapHoverRoute;
     const locked = index > state.unlockedRoute;
-    mapCtx.beginPath();
-    mapCtx.setLineDash(locked ? [3, 8] : [8, 6]);
-    mapCtx.moveTo(curve.a.x, curve.a.y);
-    mapCtx.quadraticCurveTo(curve.c.x, curve.c.y, curve.b.x, curve.b.y);
-    mapCtx.lineWidth = selected ? 5 : hovered ? 4 : 3;
-    mapCtx.strokeStyle = locked ? "rgba(255,255,255,0.34)" : selected ? "#ffd373" : "rgba(255,255,255,0.94)";
-    mapCtx.stroke();
-    if (!locked) {
-      const t = (state.mapPulse * 0.14 + index * 0.18) % 1;
-      const p = quadraticPoint(curve, t);
-      mapCtx.setLineDash([]);
-      mapCtx.beginPath();
-      mapCtx.arc(p.x, p.y, selected ? 7 : 5, 0, Math.PI * 2);
-      mapCtx.fillStyle = selected ? item.palette.accent : "#ffffff";
-      mapCtx.fill();
-    }
+    drawMapRouteThread(mapCtx, curve, {
+      selected,
+      hovered,
+      locked,
+      color: selected ? "#f6b557" : "rgba(255,255,255,0.94)",
+      pulseColor: selected ? item.palette.accent : "#ffffff",
+      index,
+    });
   });
 
   mapCtx.setLineDash([]);
@@ -1205,28 +2629,56 @@ function drawMap() {
     const p = airportPixel(id);
     const active = ROUTES.some((item, index) => index <= state.unlockedRoute && (item.from === id || item.to === id));
     const selected = ROUTES[state.selectedRoute].from === id || ROUTES[state.selectedRoute].to === id;
-    mapCtx.beginPath();
-    mapCtx.arc(p.x, p.y, selected ? 12 : 9, 0, Math.PI * 2);
-    mapCtx.fillStyle = active ? airport.color : "rgba(255,255,255,0.52)";
-    mapCtx.fill();
-    mapCtx.lineWidth = selected ? 3 : 2;
-    mapCtx.strokeStyle = "rgba(255,255,255,0.94)";
-    mapCtx.stroke();
-    mapCtx.fillStyle = "#29485f";
-    mapCtx.font = `${Math.round(12 * (w / 960))}px "M PLUS Rounded 1c", sans-serif`;
-    mapCtx.textAlign = "center";
-    mapCtx.fillText(airport.code, p.x, p.y - 15);
+    const focused = focusedAirports.has(id);
+    drawMapAirportMarker(mapCtx, airport, p.x, p.y, selected, active, focused);
+    drawMapAirportLabel(mapCtx, p.x, p.y, airport.code, selected);
   });
 
-  drawRoundRectPath(mapCtx, 16, 16, 316, 66, 16);
-  mapCtx.fillStyle = "rgba(255,255,255,0.9)";
+  drawRoundRectPath(mapCtx, 14, 14, 352, 84, 20);
+  mapCtx.fillStyle = "rgba(255, 253, 246, 0.94)";
   mapCtx.fill();
+  mapCtx.strokeStyle = "rgba(233, 189, 124, 0.4)";
+  mapCtx.lineWidth = 2;
+  mapCtx.stroke();
   mapCtx.fillStyle = "#29485f";
   mapCtx.textAlign = "left";
-  mapCtx.font = `700 ${Math.round(16 * (w / 960))}px "Baloo 2", sans-serif`;
-  mapCtx.fillText("今日夢航線", 28, 41);
-  mapCtx.font = `${Math.round(14 * (w / 960))}px "M PLUS Rounded 1c", sans-serif`;
-  mapCtx.fillText(`${AIRPORTS[route.from].code} -> ${AIRPORTS[route.to].code}`, 28, 64);
+  mapCtx.font = `${Math.round(12 * (w / 960))}px "M PLUS Rounded 1c", sans-serif`;
+  mapCtx.fillStyle = "rgba(143, 110, 129, 0.9)";
+  mapCtx.fillText("Dreamy World Map", 30, 34);
+  mapCtx.font = `700 ${Math.round(21 * (w / 960))}px "Baloo 2", sans-serif`;
+  mapCtx.fillStyle = "#2d4b63";
+  mapCtx.fillText("手繪世界航線地圖", 28, 58);
+  mapCtx.font = `${Math.round(13 * (w / 960))}px "M PLUS Rounded 1c", sans-serif`;
+  mapCtx.fillStyle = "rgba(61, 91, 118, 0.82)";
+  mapCtx.fillText(`${AIRPORTS[route.from].code} -> ${AIRPORTS[route.to].code} · 洲別貼紙、機場圖示與縫線航路`, 28, 81);
+
+  drawRoundRectPath(mapCtx, w - 186, 20, 154, 42, 15);
+  mapCtx.fillStyle = "rgba(255, 246, 224, 0.94)";
+  mapCtx.fill();
+  mapCtx.strokeStyle = "rgba(229, 184, 101, 0.5)";
+  mapCtx.lineWidth = 2;
+  mapCtx.stroke();
+  mapCtx.fillStyle = "#49647b";
+  mapCtx.textAlign = "center";
+  mapCtx.font = `700 ${Math.round(14 * (w / 960))}px "Baloo 2", sans-serif`;
+  mapCtx.fillText("點航線開始飛", w - 109, 46);
+
+  drawRoundRectPath(mapCtx, 20, h - 60, 182, 36, 14);
+  mapCtx.fillStyle = "rgba(241, 250, 255, 0.92)";
+  mapCtx.fill();
+  mapCtx.strokeStyle = "rgba(126, 179, 206, 0.42)";
+  mapCtx.stroke();
+  mapCtx.fillStyle = "#53708a";
+  mapCtx.textAlign = "left";
+  mapCtx.font = `${Math.round(12 * (w / 960))}px "M PLUS Rounded 1c", sans-serif`;
+  mapCtx.fillText("縫線路徑會跟著小飛機移動", 34, h - 38);
+
+  mapCtx.save();
+  mapCtx.strokeStyle = "rgba(233, 203, 167, 0.58)";
+  mapCtx.lineWidth = 3;
+  drawRoundRectPath(mapCtx, 8, 8, w - 16, h - 16, 28);
+  mapCtx.stroke();
+  mapCtx.restore();
 
   if (state.mapTransition) {
     drawMapTransitionOverlay();
@@ -1291,13 +2743,16 @@ function beginMapTransition() {
   }
   ensureAudioReady();
   playSfx("start");
+  if (FORCE_DEBUG) {
+    startFlight({ routeIndex: state.selectedRoute });
+    return;
+  }
   state.mapTransition = {
     routeIndex: state.selectedRoute,
     elapsed: 0,
     duration: 2.2,
   };
   renderRoutePills();
-  renderHangarUpgrades();
   updateRouteInfo();
 }
 
@@ -1341,6 +2796,8 @@ function startFlight(options = {}) {
   state.result = null;
   state.input.up = false;
   state.input.down = false;
+  state.input.left = false;
+  state.input.right = false;
   state.input.airbrake = false;
   updateHud();
 }
@@ -1376,9 +2833,14 @@ function cycleFlaps(step = 1) {
 
 function flightSystemsLabel(flight) {
   if (!flight) {
-    return "油門 -- · 襟翼 -- · 空煞 收起";
+    return "燃油 -- · 方向鍵速度 保持 · 自動襟翼 --";
   }
-  return `油門 ${throttlePercent(flight.throttleTarget)}% · 襟翼 ${flapsLabel(flight.flaps)} · 空煞 ${state.input.airbrake ? "展開" : "收起"}`;
+  const fuelLabel = flight.engineOut
+    ? "引擎熄火"
+    : flight.lowFuelWarning
+      ? `低油量 ${Math.round(currentFuelPercent(flight))}%`
+      : `燃油 ${Math.round(currentFuelPercent(flight))}%`;
+  return `${altitudeBandLabel(flight)} · ${fuelLabel} · 方向鍵速度 ${speedControlLabel(flight)} · 自動襟翼 ${flapsLabel(flight.flaps)} · 自動空煞 ${state.input.airbrake ? "展開" : "收起"}`;
 }
 
 function drawFlight() {
@@ -1387,14 +2849,25 @@ function drawFlight() {
 
 function phaseLabel(flight) {
   const landingAssist = landingAssistState(flight);
+  if (flight.phase === "takeoff_roll" && flight.engineOut) {
+    return "狀態: 燃油耗盡，跑道上已經沒有推力";
+  }
+  if (!flight.grounded && flight.engineOut) {
+    return landingAssist.flareWindow
+      ? "狀態: 引擎熄火，靠滑翔 flare 接地"
+      : "狀態: 引擎熄火，改用滑翔保住高度";
+  }
   if (flight.phase === "takeoff_roll") {
-    return flight.speed >= currentRotateSpeed(flight) ? "狀態: 速度足夠，抬頭起飛" : `狀態: 跑道加速中 · 油門 ${throttlePercent(flight.throttleTarget)}%`;
+    return flight.speed >= currentRotateSpeed(flight) ? "狀態: 速度足夠，抬頭起飛" : "狀態: 跑道加速中";
   }
   if (flight.phase === "landing_roll") {
     return flight.speed > 260 ? "狀態: 減速板展開，跑道減速" : "狀態: 跑道滑行減速";
   }
+  if (flight.phase === "descent") {
+    return "狀態: 提早減速下降，開始修正進場";
+  }
   if (spaceAltitudeRatio(flight) > 0.65) {
-    return "狀態: 高空軌道巡航";
+    return `狀態: 高空軌道巡航 · ${altitudeBandLabel(flight)}`;
   }
   if (landingAssist.flareWindow) {
     return "狀態: 拉平 flare，準備接地";
@@ -1409,31 +2882,52 @@ function phaseLabel(flight) {
   if (state.input.down) {
     return "狀態: 俯衝加速";
   }
+  if (state.input.left) {
+    return "狀態: 穩定減速";
+  }
+  if (state.input.right) {
+    return "狀態: 加速巡航";
+  }
+  if (flight.lowFuelWarning) {
+    return `狀態: 低油量巡航 · ${altitudeBandLabel(flight)}`;
+  }
   if (flight.vy > 30) {
     return "狀態: 平穩爬升";
   }
   if (flight.vy < -60) {
-    return "狀態: 緩降巡航";
+    return `狀態: 緩降巡航 · ${altitudeBandLabel(flight)}`;
   }
-  return "狀態: 巡航中";
+  return `狀態: 巡航中 · ${altitudeBandLabel(flight)}`;
 }
 
 function missionProgressLabel(flight, route) {
   const landingAssist = landingAssistState(flight);
+  if (flight.phase === "takeoff_roll" && flight.engineOut) {
+    return `燃油已經見底，${AIRPORTS[route.from].code} 跑道上沒有足夠推力；除非補到燃油，不然這趟起飛只能中止`;
+  }
+  if (!flight.grounded && flight.engineOut) {
+    return `引擎熄火，先穩住機頭維持滑翔，朝 ${AIRPORTS[route.to].code} 跑道或前方的燃油補給飛過去`;
+  }
   if (flight.phase === "takeoff_roll") {
-    return `沿 ${AIRPORTS[route.from].code} 跑道加速，現在油門 ${throttlePercent(flight.throttleTarget)}%，襟翼 ${flapsLabel(flight.flaps)}`;
+    return `沿 ${AIRPORTS[route.from].code} 跑道加速，用 → 保持加速，速度足夠後按 ↑ 抬頭離地`;
   }
   if (flight.phase === "landing_roll") {
     const rating = flight.touchdownRating ? ` · ${flight.touchdownRating}` : "";
     return `保持機身穩定，沿 ${AIRPORTS[route.to].code} 跑道滑停${rating}`;
   }
+  if (flight.phase === "descent") {
+    return `提早為 ${AIRPORTS[route.to].code} 進場做準備，先按 ← 減速，再用 ↑ / ↓ 把高度和下降率慢慢穩下來`;
+  }
   if (landingAssist.flareWindow) {
     return `接近 ${AIRPORTS[route.to].code} 跑道，輕拉機頭把下降率收在 ${Math.round(flight.landingBounceSink)} 以內`;
   }
   if (flight.phase === "approach") {
-    return `已放起落架，對準 ${AIRPORTS[route.to].code} 跑道，油門收在 ${Math.max(28, throttlePercent(flight.throttleTarget) - 10)}% 左右，接地速度建議低於 ${Math.round(flight.landingMaxTouchdownSpeed)}`;
+    return `已進入最後進場，對準 ${AIRPORTS[route.to].code} 跑道，用 ← 慢慢收速度，用 ↑ / ↓ 修正角度與接地點`;
   }
-  return `目的地 ${AIRPORTS[route.to].code} · 星星 ${flight.stars}/${route.mission.stars} · 風流 ${flight.drafts}/${route.mission.drafts}`;
+  if (flight.lowFuelWarning) {
+    return `燃油偏低，優先找前方的燃油補給；中空最好穩住姿態，低空與高空也能冒險補油`;
+  }
+  return `${altitudeBandHint(flight)} · 目的地 ${AIRPORTS[route.to].code} · 星星 ${flight.stars}/${route.mission.stars} · 風流 ${flight.drafts}/${route.mission.drafts}`;
 }
 
 function updateHud() {
@@ -1445,7 +2939,7 @@ function updateHud() {
   const progress = routeProgress(flight);
   const ghostState = ghostChaseState(flight);
   hudDistance.textContent = `${Math.floor(progress * 100)}%`;
-  hudHealth.textContent = `${Math.max(0, currentSunPercent(flight)).toFixed(0)}%`;
+  hudHealth.textContent = `${Math.max(0, currentFuelPercent(flight)).toFixed(0)}%`;
   hudFuel.textContent = `${Math.round(flight.speed)}`;
   hudScore.textContent = `${flight.stars}`;
   hudPhase.textContent = phaseLabel(flight);
@@ -1498,10 +2992,6 @@ function finishFlight(reason) {
   const mission = evaluateMission(flight, route);
   const activeGhostSlot = getGhostSlot(route.id);
   const previousGhost = getGhostRun(route.id);
-  const missionBonus = arrived && mission.success ? 14 + route.difficulty * 4 : 0;
-  const reward = Math.max(8, Math.round(14 + flight.stars * 1.4 + flight.drafts * 5 + missionBonus));
-  state.hangar.parts += reward;
-  saveHangar();
 
   let unlockMessage = "";
   let ghostRaceMessage = "";
@@ -1517,51 +3007,85 @@ function finishFlight(reason) {
     } else {
       playSfx("success");
     }
-  } else if (reason === "sunset") {
-    playSfx("sunset");
   } else {
     playSfx("fail");
   }
 
   saveProgress();
 
-  let lead = "這趟航班失敗了。";
-  if (arrived) {
-    lead = "順利降落，已經抵達 B 機場。";
-  } else if (reason === "sunset") {
-    lead = "夕陽落下前沒能抵達 B 機場。";
-  } else if (reason === "crash") {
-    lead = "高度過低，墜入海面或重落在跑道上。";
-  } else if (reason === "takeoff_overrun") {
-    lead = "跑道用完了，速度還是不足以安全起飛。";
-  } else if (reason === "landing_overrun") {
-    lead = "已經接地，但跑道不夠長，沒能在盡頭前停下。";
-  } else if (reason === "missed") {
-    lead = "你飛過了機場，但沒有對準跑道。";
-  }
-
-  state.result = {
-    routeIndex: flight.routeIndex,
-  };
-
-  resultTitle.textContent = arrived ? "順利抵達 B 機場" : "這趟航班失敗了";
-  resultBody.textContent = [
-    lead,
-    `航線：${AIRPORTS[route.from].code} -> ${AIRPORTS[route.to].code}`,
-    `飛行時間：${flight.elapsed.toFixed(1)} 秒`,
-    flight.touchdownRating ? `落地評價：${flight.touchdownRating}（接地速度 ${Math.round(flight.touchdownSpeed)} / 下降率 ${Math.round(flight.touchdownSinkRate)}）` : "",
-    `收集星星：${flight.stars}`,
-    `穿過風流：${flight.drafts}`,
-    `獲得零件：+${reward}（現有 ${state.hangar.parts}）`,
-    mission.success ? "額外任務完成" : `額外任務未完成：${mission.failed.join("、")}`,
+  const title = arrived ? `已抵達 ${AIRPORTS[route.to].code}` : "航班未完成";
+  const summary = resultReasonSummary(reason, flight, route);
+  const body = arrived
+    ? `${routeCodeLabel(route)} · 飛行 ${flight.elapsed.toFixed(1)} 秒 · 燃油 ${Math.round(currentFuelPercent(flight))}% · 落地評價 ${flight.touchdownRating || "已完成"}`
+    : `${routeCodeLabel(route)} · ${summary}`;
+  const stats = [
+    {
+      label: "航線",
+      value: routeCodeLabel(route),
+      meta: routeNameLabel(route),
+    },
+    {
+      label: "飛行時間",
+      value: `${flight.elapsed.toFixed(1)} 秒`,
+      meta: arrived ? "本次完整航班" : "本次嘗試紀錄",
+    },
+    {
+      label: "燃油",
+      value: `${Math.round(currentFuelPercent(flight))}%`,
+      meta: `${Math.round(flight.fuel)} / ${Math.round(flight.maxFuel)}`,
+    },
+    {
+      label: "收集",
+      value: `${flight.stars} 星`,
+      meta: `風流 ${flight.drafts} 道`,
+    },
+    flight.touchdownRating
+      ? {
+          label: "接地",
+          value: flight.touchdownRating,
+          meta: `速度 ${Math.round(flight.touchdownSpeed)} · 下降率 ${Math.round(flight.touchdownSinkRate)}`,
+        }
+      : {
+          label: "狀態",
+          value: arrived ? "完成" : "未完成",
+          meta: arrived ? "已滑停" : summary,
+        },
+  ];
+  const notes = [
+    mission.success
+      ? `今日任務完成：星星 ${flight.stars}/${route.mission.stars} · 風流 ${flight.drafts}/${route.mission.drafts}`
+      : `今日任務未完成：${mission.failed.join("、")}`,
+    flight.hadEngineOut ? "途中曾經發生引擎熄火" : "",
     ghostRaceMessage,
     ghostMessage,
     unlockMessage,
-  ].filter(Boolean).join("\n");
+  ].filter(Boolean);
+  const continueSuggestion = resolveContinueSuggestion(flight, reason);
+
+  state.result = {
+    routeIndex: flight.routeIndex,
+    title,
+    summary,
+    body,
+    notes,
+    continueRouteIndex: continueSuggestion?.routeIndex ?? null,
+    continueRouteId: continueSuggestion?.routeId ?? "",
+    continueFrom: continueSuggestion?.fromCode ?? "",
+    continueTo: continueSuggestion?.toCode ?? "",
+  };
+
+  resultTitle.textContent = title;
+  renderResultSummary(summary);
+  resultBody.textContent = body;
+  renderResultStats(stats);
+  renderResultNotes(notes);
+  renderContinuePanel(continueSuggestion, flight.routeIndex);
 
   state.flight = null;
   state.input.up = false;
   state.input.down = false;
+  state.input.left = false;
+  state.input.right = false;
   state.input.airbrake = false;
   setScreen("result");
 }
@@ -1570,6 +3094,7 @@ function tick(now) {
   const dt = clamp((now - state.lastTick) / 1000, 0.001, 0.034);
   state.lastTick = now;
   state.mapPulse += dt;
+  updateMapEffects(dt);
   updateMusic();
 
   if (state.screen === "map") {
@@ -1597,6 +3122,7 @@ function resetProgress() {
   localStorage.removeItem(STORAGE_UNLOCK_KEY);
   localStorage.removeItem(STORAGE_BEST_KEY);
   localStorage.removeItem(STORAGE_GHOSTS_KEY);
+  localStorage.removeItem("tiny-airplanes.hangar");
   selectRoute(0);
   setScreen("map");
 }
@@ -1682,6 +3208,12 @@ function installDebugApi() {
       if (typeof nextInput.down === "boolean") {
         state.input.down = nextInput.down;
       }
+      if (typeof nextInput.left === "boolean") {
+        state.input.left = nextInput.left;
+      }
+      if (typeof nextInput.right === "boolean") {
+        state.input.right = nextInput.right;
+      }
       if (typeof nextInput.airbrake === "boolean") {
         state.input.airbrake = nextInput.airbrake;
       }
@@ -1690,6 +3222,8 @@ function installDebugApi() {
     releaseInput() {
       state.input.up = false;
       state.input.down = false;
+      state.input.left = false;
+      state.input.right = false;
       state.input.airbrake = false;
       return getSnapshot();
     },
@@ -1732,6 +3266,15 @@ function installEventListeners() {
     }
     ensureAudioReady();
     selectRoute(state.result.routeIndex);
+    setScreen("map");
+    beginMapTransition();
+  });
+
+  bindTapButton(continueFlightButton, () => {
+    if (!state.result || state.result.continueRouteIndex === null || state.result.continueRouteIndex === undefined) {
+      return;
+    }
+    selectRoute(state.result.continueRouteIndex);
     setScreen("map");
     beginMapTransition();
   });
@@ -1808,11 +3351,13 @@ function installEventListeners() {
     }
     const point = getCanvasPoint(event, mapCanvas);
     state.mapHoverRoute = routeHitTest(point);
-    mapCanvas.style.cursor = state.mapHoverRoute >= 0 ? "pointer" : "default";
+    state.mapHoverRegion = regionStickerHitTest(point);
+    mapCanvas.style.cursor = state.mapHoverRoute >= 0 || state.mapHoverRegion ? "pointer" : "default";
   });
 
   mapCanvas.addEventListener("pointerleave", () => {
     state.mapHoverRoute = -1;
+    state.mapHoverRegion = "";
     mapCanvas.style.cursor = "default";
   });
 
@@ -1825,6 +3370,12 @@ function installEventListeners() {
     const hit = routeHitTest(point);
     if (hit >= 0) {
       selectRoute(hit);
+      return;
+    }
+    const regionId = regionStickerHitTest(point);
+    if (regionId) {
+      triggerRegionStickerBurst(regionId);
+      playSfx("tap");
     }
   });
 
@@ -1843,25 +3394,13 @@ function installEventListeners() {
     }
     if (event.code === "ArrowLeft" || event.code === "KeyA") {
       ensureAudioReady();
-      adjustThrottle(-0.08);
+      state.input.left = true;
       event.preventDefault();
       return;
     }
     if (event.code === "ArrowRight" || event.code === "KeyD") {
       ensureAudioReady();
-      adjustThrottle(0.08);
-      event.preventDefault();
-      return;
-    }
-    if (event.code === "KeyF") {
-      ensureAudioReady();
-      cycleFlaps(1);
-      event.preventDefault();
-      return;
-    }
-    if (event.code === "Space") {
-      ensureAudioReady();
-      state.input.airbrake = true;
+      state.input.right = true;
       event.preventDefault();
       return;
     }
@@ -1882,8 +3421,13 @@ function installEventListeners() {
       state.input.down = false;
       return;
     }
-    if (event.code === "Space") {
+    if (event.code === "ArrowLeft" || event.code === "KeyA") {
+      state.input.left = false;
       state.input.airbrake = false;
+      return;
+    }
+    if (event.code === "ArrowRight" || event.code === "KeyD") {
+      state.input.right = false;
     }
   });
 
@@ -1894,6 +3438,8 @@ function installEventListeners() {
   window.addEventListener("blur", () => {
     state.input.up = false;
     state.input.down = false;
+    state.input.left = false;
+    state.input.right = false;
     state.input.airbrake = false;
   });
 
@@ -1904,10 +3450,8 @@ function installEventListeners() {
 
   bindHoldButton(touchUp, "up");
   bindHoldButton(touchDown, "down");
-  bindHoldButton(touchAirbrake, "airbrake");
-  bindTapButton(touchThrottleDown, () => adjustThrottle(-0.08));
-  bindTapButton(touchThrottleUp, () => adjustThrottle(0.08));
-  bindTapButton(touchFlaps, () => cycleFlaps(1));
+  bindHoldButton(touchLeft, "left");
+  bindHoldButton(touchRight, "right");
 }
 
 function init() {

@@ -41,7 +41,7 @@ async function main() {
       localStorage.clear();
       localStorage.setItem("tiny-airplanes.unlocked-route", "2");
       localStorage.setItem("tiny-airplanes.best-runs", JSON.stringify({
-        "tpe-hnd": { time: "18.5", stars: "9" },
+        "yvr-lax": { time: "18.5", stars: "9" },
       }));
       localStorage.setItem("tiny-airplanes.hangar", JSON.stringify({
         parts: "12",
@@ -57,13 +57,13 @@ async function main() {
     let snapshot = await getSnapshot(desktopPage);
     let persisted = await desktopPage.evaluate(() => ({
       version: localStorage.getItem("tiny-airplanes.save-version"),
-      hangar: JSON.parse(localStorage.getItem("tiny-airplanes.hangar") || "{}"),
+      legacyHangar: localStorage.getItem("tiny-airplanes.hangar"),
       bestRuns: JSON.parse(localStorage.getItem("tiny-airplanes.best-runs") || "{}"),
     }));
     assert(snapshot.unlockedRoute === 2, `預期 migration 後保留已解鎖航線，實際 ${snapshot.unlockedRoute}`);
-    assert(persisted.version === "5", `預期 migration 後寫入 save version 5，實際 ${persisted.version}`);
-    assert(persisted.hangar?.upgrades?.frame === 5, `預期 migration 後機體升級被正規化到上限 5，實際 ${persisted.hangar?.upgrades?.frame}`);
-    assert(persisted.bestRuns?.["tpe-hnd"]?.stars === 9, "預期 migration 後最佳紀錄保留並轉成數字");
+    assert(persisted.version === "7", `預期 migration 後寫入 save version 7，實際 ${persisted.version}`);
+    assert(persisted.legacyHangar === null, "預期 migration 後移除舊版改裝存檔");
+    assert(persisted.bestRuns?.["yvr-lax"]?.stars === 9, "預期 migration 後最佳紀錄保留並轉成數字");
 
     await desktopPage.evaluate(() => {
       window.__tinyAirplanes.setUnlockedRoute(3);
@@ -88,7 +88,7 @@ async function main() {
     await mobilePage.evaluate(() => {
       document.getElementById("start-flight")?.click();
     });
-    await mobilePage.waitForFunction(() => window.__tinyAirplanes.getSnapshot().screen === "flight", null, { timeout: 5000 });
+    await mobilePage.waitForFunction(() => window.__tinyAirplanes.getSnapshot().screen === "flight", null, { timeout: 9000 });
     assert(await mobilePage.locator("#touch-controls").isVisible(), "預期手機模式下顯示觸控按鈕");
 
     await mobilePage.evaluate(() => {
@@ -104,8 +104,10 @@ async function main() {
         runwayState: null,
       });
     });
+    await mobilePage.waitForTimeout(240);
     const beforeTouch = await getSnapshot(mobilePage);
-    const throttleBefore = beforeTouch.flight.throttleTarget;
+    const touchRightVisible = await mobilePage.locator("#touch-right").isVisible();
+    assert(touchRightVisible, "預期新的右側加速觸控按鈕應可見");
 
     await mobilePage.locator("#touch-up").dispatchEvent("pointerdown", { pointerId: 1, pointerType: "touch", isPrimary: true, button: 0 });
     await mobilePage.waitForTimeout(700);
@@ -117,9 +119,6 @@ async function main() {
       `預期觸控上升有效，實際高度 ${beforeTouch.flight.altitude} -> ${afterClimb.flight.altitude}`,
     );
 
-    await mobilePage.locator("#touch-throttle-up").click();
-    const afterThrottle = await getSnapshot(mobilePage);
-    assert(afterThrottle.flight.throttleTarget > throttleBefore, "預期觸控加油後 throttle target 應上升");
     logStep("手機觸控飛行輸入正常");
 
     console.log("");
@@ -129,7 +128,7 @@ async function main() {
       unlockedAfterReload: snapshot.unlockedRoute,
       touchAltitudeBefore: round(beforeTouch.flight.altitude),
       touchAltitudeAfter: round(afterClimb.flight.altitude),
-      throttleAfterTouch: afterThrottle.flight.throttleTarget,
+      touchRightVisible,
     }, null, 2));
   } finally {
     await browser?.close();

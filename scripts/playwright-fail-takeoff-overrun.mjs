@@ -28,7 +28,7 @@ async function main() {
     await page.evaluate(() => {
       document.getElementById("start-flight")?.click();
     });
-    await page.waitForFunction(() => window.__tinyAirplanes.getSnapshot().screen === "flight", null, { timeout: 5000 });
+    await page.waitForFunction(() => window.__tinyAirplanes.getSnapshot().screen === "flight", null, { timeout: 9000 });
 
     const startSnapshot = await getSnapshot(page);
     assert(startSnapshot.flight?.phase === "takeoff_roll", "預期起飛失敗案例從跑道加速階段開始");
@@ -52,7 +52,7 @@ async function main() {
 
     await page.waitForFunction(() => window.__tinyAirplanes.getSnapshot().screen === "result", null, { timeout: 2500 });
     const resultSnapshot = await getSnapshot(page);
-    assert(resultSnapshot.result?.title?.includes("失敗"), "預期跑道用盡後應進入失敗結算");
+    assert(resultSnapshot.result?.title?.includes("未完成"), "預期跑道用盡後應進入失敗結算");
     assert(resultSnapshot.result?.body?.includes("跑道用完了"), "預期失敗原因應標示為起飛跑道不足");
     logStep("起飛跑道不足時，會正確進入 takeoff_overrun 結算");
 

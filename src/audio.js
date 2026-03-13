@@ -133,6 +133,12 @@ export function createAudioController({ getState, musicPattern }) {
       playTone(1040, 0.08, { gain: 0.05, delay: 0.04 });
       return;
     }
+    if (type === "fuel") {
+      playTone(640, 0.08, { gain: 0.045, slideTo: 760 });
+      playTone(960, 0.1, { gain: 0.04, delay: 0.05 });
+      playNoise(0.06, 0.018, 900, 0.01);
+      return;
+    }
     if (type === "island") {
       playTone(392, 0.08, { gain: 0.04 });
       playTone(523.25, 0.1, { gain: 0.045, delay: 0.07 });

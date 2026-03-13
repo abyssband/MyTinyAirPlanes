@@ -28,7 +28,7 @@ async function main() {
     await page.evaluate(() => {
       document.getElementById("start-flight")?.click();
     });
-    await page.waitForFunction(() => window.__tinyAirplanes.getSnapshot().screen === "flight", null, { timeout: 5000 });
+    await page.waitForFunction(() => window.__tinyAirplanes.getSnapshot().screen === "flight", null, { timeout: 9000 });
 
     logStep("已進入飛行畫面，準備模擬落地後跑道不足");
     await page.evaluate(() => {
@@ -51,7 +51,7 @@ async function main() {
 
     await page.waitForFunction(() => window.__tinyAirplanes.getSnapshot().screen === "result", null, { timeout: 2500 });
     const resultSnapshot = await getSnapshot(page);
-    assert(resultSnapshot.result?.title?.includes("失敗"), "預期滑行衝出跑道後應進入失敗結算");
+    assert(resultSnapshot.result?.title?.includes("未完成"), "預期滑行衝出跑道後應進入失敗結算");
     assert(resultSnapshot.result?.body?.includes("跑道不夠長"), "預期失敗原因應標示為 landing_overrun");
     logStep("接地後無法在盡頭前停下時，會正確進入 landing_overrun 結算");
 

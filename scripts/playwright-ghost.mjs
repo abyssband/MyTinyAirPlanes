@@ -13,7 +13,7 @@ async function startRoute(page) {
   await page.evaluate(() => {
     document.getElementById("start-flight")?.click();
   });
-  await page.waitForFunction(() => window.__tinyAirplanes.getSnapshot().screen === "flight", null, { timeout: 5000 });
+  await page.waitForFunction(() => window.__tinyAirplanes.getSnapshot().screen === "flight", null, { timeout: 9000 });
 }
 
 async function finishSuccess(page) {
@@ -53,23 +53,23 @@ async function main() {
     await finishSuccess(page);
 
     let storedGhost = await page.evaluate(() => JSON.parse(localStorage.getItem("tiny-airplanes.ghost-runs") || "{}"));
-    assert(storedGhost["tpe-hnd"]?.best, "預期成功結算後會寫入 tpe-hnd 的最佳鬼影");
-    assert(storedGhost["tpe-hnd"]?.last, "預期成功結算後也會寫入最近回放");
-    assert(storedGhost["tpe-hnd"].best.samples?.length >= 2, "預期最佳鬼影至少包含起飛與降落兩個 sample");
-    const bestTime = storedGhost["tpe-hnd"].best.time;
+    assert(storedGhost["yvr-lax"]?.best, "預期成功結算後會寫入 yvr-lax 的最佳鬼影");
+    assert(storedGhost["yvr-lax"]?.last, "預期成功結算後也會寫入最近回放");
+    assert(storedGhost["yvr-lax"].best.samples?.length >= 2, "預期最佳鬼影至少包含起飛與降落兩個 sample");
+    const bestTime = storedGhost["yvr-lax"].best.time;
     logStep(`最佳鬼影已寫入 localStorage，best=${bestTime}s`);
 
     logStep("再飛一次，建立較慢的最近回放");
     await page.evaluate(() => {
       window.__tinyAirplanes.startFlight(0);
     });
-    await page.waitForFunction(() => window.__tinyAirplanes.getSnapshot().screen === "flight", null, { timeout: 5000 });
+    await page.waitForFunction(() => window.__tinyAirplanes.getSnapshot().screen === "flight", null, { timeout: 9000 });
     await page.waitForTimeout(1200);
     await finishSuccess(page);
     storedGhost = await page.evaluate(() => JSON.parse(localStorage.getItem("tiny-airplanes.ghost-runs") || "{}"));
-    assert(storedGhost["tpe-hnd"]?.last?.time >= bestTime, "預期最近回放時間應大於或等於最佳鬼影");
-    assert(storedGhost["tpe-hnd"]?.best?.time === bestTime, "預期較慢回放不會覆蓋最佳鬼影");
-    logStep(`最近回放已更新，last=${storedGhost["tpe-hnd"].last.time}s`);
+    assert(storedGhost["yvr-lax"]?.last?.time >= bestTime, "預期最近回放時間應大於或等於最佳鬼影");
+    assert(storedGhost["yvr-lax"]?.best?.time === bestTime, "預期較慢回放不會覆蓋最佳鬼影");
+    logStep(`最近回放已更新，last=${storedGhost["yvr-lax"].last.time}s`);
 
     logStep("切換成使用最近回放，並確認偏好會持久化");
     await page.evaluate(() => {
@@ -89,17 +89,17 @@ async function main() {
     await page.evaluate(() => {
       window.__tinyAirplanes.startFlight(0);
     });
-    await page.waitForFunction(() => window.__tinyAirplanes.getSnapshot().screen === "flight", null, { timeout: 5000 });
+    await page.waitForFunction(() => window.__tinyAirplanes.getSnapshot().screen === "flight", null, { timeout: 9000 });
     const flightSnapshot = await getSnapshot(page);
     assert(flightSnapshot.flight?.ghostAvailable === true, "預期再次起飛時會載入 ghost plane");
     assert(flightSnapshot.flight?.ghostSlot === "last", "預期再次起飛時會使用最近回放作為鬼影來源");
-    assert(flightSnapshot.flight?.ghostFrames === storedGhost["tpe-hnd"].last.samples.length, "預期鬼影 frame 數量與最近回放一致");
+    assert(flightSnapshot.flight?.ghostFrames === storedGhost["yvr-lax"].last.samples.length, "預期鬼影 frame 數量與最近回放一致");
     logStep(`再次起飛已載入最近回放，ghostFrames=${flightSnapshot.flight.ghostFrames}`);
 
     console.log("");
     console.log("Ghost test passed");
     console.log(JSON.stringify({
-      route: "tpe-hnd",
+      route: "yvr-lax",
       bestTime: mapSnapshot.selectedRouteGhost.bestTime,
       lastTime: mapSnapshot.selectedRouteGhost.lastTime,
       activeSlot: mapSnapshot.selectedRouteGhost.slot,

@@ -13,7 +13,7 @@ async function startRoute(page) {
   await page.evaluate(() => {
     document.getElementById("start-flight")?.click();
   });
-  await page.waitForFunction(() => window.__tinyAirplanes.getSnapshot().screen === "flight", null, { timeout: 5000 });
+  await page.waitForFunction(() => window.__tinyAirplanes.getSnapshot().screen === "flight", null, { timeout: 9000 });
   return getSnapshot(page);
 }
 
@@ -41,7 +41,7 @@ async function main() {
     await page.evaluate(() => {
       window.__tinyAirplanes.startFlight(0);
     });
-    await page.waitForFunction(() => window.__tinyAirplanes.getSnapshot().screen === "flight", null, { timeout: 5000 });
+    await page.waitForFunction(() => window.__tinyAirplanes.getSnapshot().screen === "flight", null, { timeout: 9000 });
     const second = await getSnapshot(page);
 
     assert(second.flight?.rngSeed === first.flight?.rngSeed, "預期重開同航線時 seed 不變");

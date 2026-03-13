@@ -7,14 +7,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@400;600;700&family=M+PLUS+Rounded+1c:wght@400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./styles.css?v=20260313-1205">
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar panel">
       <div>
         <h1>My Tiny AirPlanes</h1>
-        <p>粉彩天空航行，從 A 機場穿越雲海飛向 B 機場</p>
+        <p>粉彩天空航行，沿著可愛化的真實世界航圖，從 A 機場飛向下一座國際機場</p>
       </div>
       <div class="topbar-actions">
         <button id="audio-toggle" class="ghost-btn">音效: 關閉</button>
@@ -29,23 +29,44 @@
         <div class="layout-grid">
           <div class="panel map-panel">
             <canvas id="map-canvas" aria-label="迷你世界地圖"></canvas>
-            <p class="hint">點擊亮色航線選關，起飛前會有自動航線過場動畫。</p>
+            <p class="hint">點擊亮色航線選關，世界地圖已改成真實地理投影的可愛版本，起飛前會有自動航線過場動畫。</p>
           </div>
 
           <aside class="panel route-panel">
-            <h2 id="route-title">選擇今天的航線</h2>
-            <p id="route-meta"></p>
-            <p id="route-desc"></p>
+            <section class="briefing-card" aria-label="航班簡報卡">
+              <div class="briefing-topline">
+                <p class="briefing-kicker">Dream Flight Log</p>
+                <span class="briefing-stamp">cute mission card</span>
+              </div>
+              <div class="briefing-stickers" aria-hidden="true">
+                <span class="briefing-sticker briefing-sticker-sun">今日航班</span>
+                <span class="briefing-sticker briefing-sticker-cloud">world hop</span>
+              </div>
+              <div class="briefing-route">
+                <div class="briefing-airport">
+                  <span class="briefing-airport-label">A 機場</span>
+                  <strong id="route-from-code">TPE</strong>
+                  <span id="route-from-name">台北</span>
+                </div>
+                <div class="briefing-route-line" aria-hidden="true">
+                  <span class="briefing-route-mark"></span>
+                  <span class="briefing-route-arrow">Dream Air Lane</span>
+                  <span class="briefing-route-mark"></span>
+                </div>
+                <div class="briefing-airport">
+                  <span class="briefing-airport-label">B 機場</span>
+                  <strong id="route-to-code">HND</strong>
+                  <span id="route-to-name">東京</span>
+                </div>
+              </div>
+              <h2 id="route-title">選擇今天的航線</h2>
+              <p id="route-desc" class="briefing-desc"></p>
+              <div id="route-meta" class="briefing-stats" aria-live="polite"></div>
+              <div id="route-briefing" class="briefing-checklist"></div>
+            </section>
             <div class="mission-card">
               <h3>關卡任務</h3>
               <ul id="route-mission" class="mission-list"></ul>
-            </div>
-            <div class="hangar-card">
-              <div class="hangar-head">
-                <h3>小飛機改裝</h3>
-                <p id="hangar-parts">零件: 0</p>
-              </div>
-              <div id="upgrade-list" class="upgrade-list"></div>
             </div>
             <div class="ghost-card">
               <div class="ghost-head">
@@ -68,25 +89,32 @@
           <canvas id="game-canvas" aria-label="飛行關卡"></canvas>
           <div class="hud">
             <div class="meter"><span>航程</span><strong id="hud-distance">0%</strong></div>
-            <div class="meter"><span>夕照</span><strong id="hud-health">100%</strong></div>
+            <div class="meter"><span>燃油</span><strong id="hud-health">100%</strong></div>
             <div class="meter"><span>速度</span><strong id="hud-fuel">0</strong></div>
             <div class="meter"><span>星星</span><strong id="hud-score">0</strong></div>
           </div>
           <div class="hud-extra">
             <p id="hud-phase">狀態: 待命</p>
-            <p id="hud-systems">油門 82% · 襟翼 1 · 空煞 收起</p>
+            <p id="hud-systems">方向鍵速度 保持 · 自動襟翼 1 · 自動空煞 收起</p>
             <p id="hud-ghost">鬼影 開啟 · 目前沒有紀錄</p>
             <p id="hud-mission">先沿 A 機場跑道加速起飛，最後在 B 機場跑道接地並滑停</p>
           </div>
           <pre id="debug-panel" class="debug-panel hidden" aria-live="polite"></pre>
-          <p class="hint">控制：`W` / `↑` 抬頭拉升，`S` / `↓` 壓低機頭，`A` / `←` 收油門，`D` / `→` 加油門，`F` 切換襟翼，`Space` 空氣煞車，`G` 顯示或隱藏鬼影。夜間進場時看跑道燈與 flare 提示收尾。</p>
+          <p class="hint">控制：只要用方向鍵。`↑` 拉升、`↓` 壓低、`←` 減速進場、`→` 加速巡航。飛機會自動處理油門、襟翼和空煞；`G` 仍可切換鬼影。</p>
         </div>
       </section>
 
       <section id="result-screen" class="screen hidden">
         <div class="panel result-panel">
           <h2 id="result-title"></h2>
+          <p id="result-summary" class="result-summary"></p>
           <p id="result-body"></p>
+          <div id="result-stats" class="result-stats" aria-live="polite"></div>
+          <ul id="result-notes" class="result-notes hidden" aria-live="polite"></ul>
+          <div id="result-continue-panel" class="result-continue-panel">
+            <p id="result-continue-summary"></p>
+            <button id="continue-flight" class="primary-btn">繼續飛行</button>
+          </div>
           <div id="result-ghost-panel" class="result-ghost-panel hidden">
             <p id="result-ghost-summary"></p>
             <div class="ghost-slot-actions">
@@ -95,7 +123,7 @@
             </div>
           </div>
           <div class="result-actions">
-            <button id="retry-flight" class="primary-btn">再飛一次</button>
+            <button id="retry-flight" class="ghost-btn">再飛一次</button>
             <button id="back-to-map" class="ghost-btn">回到世界地圖</button>
           </div>
         </div>
@@ -106,12 +134,10 @@
   <div id="touch-controls" class="touch-controls hidden">
     <button id="touch-up" class="touch-btn">上升</button>
     <button id="touch-down" class="touch-btn">下降</button>
-    <button id="touch-throttle-down" class="touch-btn touch-btn-small">收油</button>
-    <button id="touch-throttle-up" class="touch-btn touch-btn-small">加油</button>
-    <button id="touch-flaps" class="touch-btn touch-btn-small">襟翼</button>
-    <button id="touch-airbrake" class="touch-btn touch-btn-small">空煞</button>
+    <button id="touch-left" class="touch-btn touch-btn-small">減速</button>
+    <button id="touch-right" class="touch-btn touch-btn-small">加速</button>
   </div>
 
-  <script type="module" src="./main.js"></script>
+  <script type="module" src="./main.js?v=20260313-1205"></script>
 </body>
 </html>
