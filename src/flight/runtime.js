@@ -1,7 +1,7 @@
 export function createFlightRuntime(deps) {
   const {
     ROUTES,
-    activeVehicle,
+    getActiveVehicle,
     gameCanvas,
     state,
     clamp,
@@ -187,7 +187,7 @@ export function createFlightRuntime(deps) {
 
   function createFlightState(routeIndex) {
     const route = ROUTES[routeIndex];
-    const vehicle = activeVehicle;
+    const vehicle = getActiveVehicle();
     const effects = {
       speedMultiplier: vehicle.effects?.speedMultiplier || 1,
       launchBoost: vehicle.effects?.launchBoost || 1,

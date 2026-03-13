@@ -5,8 +5,9 @@ export const STORAGE_DEBUG_KEY = "tiny-airplanes.debug-enabled";
 export const STORAGE_GHOSTS_KEY = "tiny-airplanes.ghost-runs";
 export const STORAGE_GHOST_ENABLED_KEY = "tiny-airplanes.ghost-enabled";
 export const STORAGE_STICKERS_KEY = "tiny-airplanes.orbit-stickers";
+export const STORAGE_VEHICLE_KEY = "tiny-airplanes.vehicle-id";
 export const STORAGE_SAVE_VERSION_KEY = "tiny-airplanes.save-version";
-export const CURRENT_SAVE_VERSION = 9;
+export const CURRENT_SAVE_VERSION = 10;
 export const SPACE_REFERENCE = {
   visualStartKm: 24,
   karmanLineKm: 100,
@@ -106,7 +107,8 @@ export const VEHICLE_PROFILES = {
     },
   },
 };
-export const ACTIVE_VEHICLE_ID = VEHICLE_PROFILES[SEARCH_PARAMS.get("vehicle")] ? SEARCH_PARAMS.get("vehicle") : "reusableShuttle";
+export const HAS_VEHICLE_OVERRIDE = Boolean(VEHICLE_PROFILES[SEARCH_PARAMS.get("vehicle")]);
+export const ACTIVE_VEHICLE_ID = HAS_VEHICLE_OVERRIDE ? SEARCH_PARAMS.get("vehicle") : "reusableShuttle";
 export const FORCE_DEBUG = ["1", "true", "on"].includes((SEARCH_PARAMS.get("debug") || "").toLowerCase());
 export const FORCE_MUTE = ["1", "true", "on"].includes((SEARCH_PARAMS.get("mute") || "").toLowerCase());
 

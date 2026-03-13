@@ -12,17 +12,18 @@ import {
   STORAGE_STICKERS_KEY,
   STORAGE_UNLOCK_KEY,
   VEHICLE_PROFILES,
-} from "./src/config.js?v=20260314-0035";
-import { createAudioController } from "./src/audio.js?v=20260314-0035";
-import { createFlightRenderer } from "./src/flight/render.js?v=20260314-0035";
-import { createFlightRuntime } from "./src/flight/runtime.js?v=20260314-0035";
+} from "./src/config.js?v=20260314-0115";
+import { createAudioController } from "./src/audio.js?v=20260314-0115";
+import { createFlightRenderer } from "./src/flight/render.js?v=20260314-0115";
+import { createFlightRuntime } from "./src/flight/runtime.js?v=20260314-0115";
 import {
   loadPersistedState,
   saveAudioPreference,
   saveDebugPreference,
   saveGhostPreference,
   saveProgressData,
-} from "./src/storage.js?v=20260314-0035";
+  saveVehiclePreference,
+} from "./src/storage.js?v=20260314-0115";
 import {
   blendHex,
   clamp,
@@ -32,7 +33,7 @@ import {
   lerp,
   roundNumber,
   smoothStep,
-} from "./src/utils.js?v=20260314-0035";
+} from "./src/utils.js?v=20260314-0115";
 
 const mapScreen = document.getElementById("map-screen");
 const flightScreen = document.getElementById("flight-screen");
@@ -52,6 +53,7 @@ const routeFromName = document.getElementById("route-from-name");
 const routeToCode = document.getElementById("route-to-code");
 const routeToName = document.getElementById("route-to-name");
 const routeBriefing = document.getElementById("route-briefing");
+const vehiclePicker = document.getElementById("vehicle-picker");
 const ghostSlotMeta = document.getElementById("ghost-slot-meta");
 const ghostSlotBestButton = document.getElementById("ghost-slot-best");
 const ghostSlotLastButton = document.getElementById("ghost-slot-last");
@@ -107,6 +109,7 @@ const state = {
   bestRuns: {},
   ghostRuns: {},
   stickerCollection: {},
+  selectedVehicleId: ACTIVE_VEHICLE_ID,
   mapHoverRoute: -1,
   mapHoverRegion: "",
   mapRegionPop: {},
@@ -128,7 +131,7 @@ const state = {
   lastTick: performance.now(),
 };
 
-const ACTIVE_VEHICLE = VEHICLE_PROFILES[ACTIVE_VEHICLE_ID];
+const VEHICLE_LIST = Object.values(VEHICLE_PROFILES);
 
 const GHOST_SAMPLE_INTERVAL = 0.08;
 const DISPLAY_SPEED_KMH_PER_UNIT = 0.18;
@@ -167,7 +170,7 @@ const audioController = createAudioController({
 });
 const flightRuntime = createFlightRuntime({
   ROUTES,
-  activeVehicle: ACTIVE_VEHICLE,
+  getActiveVehicle: currentVehicle,
   gameCanvas,
   state,
   clamp,
@@ -254,13 +257,14 @@ function loadProgress() {
   state.bestRuns = persisted.bestRuns;
   state.ghostRuns = persisted.ghostRuns;
   state.stickerCollection = persisted.stickerCollection;
+  state.selectedVehicleId = persisted.selectedVehicleId;
   state.audioEnabled = persisted.audioEnabled;
   state.ghostEnabled = persisted.ghostEnabled;
   state.debugEnabled = persisted.debugEnabled;
 }
 
 function saveProgress() {
-  saveProgressData(localStorage, state.unlockedRoute, state.bestRuns, state.ghostRuns, state.stickerCollection);
+  saveProgressData(localStorage, state.unlockedRoute, state.bestRuns, state.ghostRuns, state.stickerCollection, state.selectedVehicleId);
 }
 
 function saveAudioSetting() {
@@ -273,6 +277,14 @@ function saveDebugSetting() {
 
 function saveGhostSetting() {
   saveGhostPreference(localStorage, state.ghostEnabled);
+}
+
+function saveVehicleSetting() {
+  saveVehiclePreference(localStorage, state.selectedVehicleId);
+}
+
+function currentVehicle() {
+  return VEHICLE_PROFILES[state.selectedVehicleId] || VEHICLE_PROFILES[ACTIVE_VEHICLE_ID] || VEHICLE_LIST[0];
 }
 
 function updateAudioToggleLabel() {
@@ -309,6 +321,50 @@ function updateDebugToggleLabel() {
   debugToggleButton.hidden = !FORCE_DEBUG;
   debugToggleButton.disabled = !FORCE_DEBUG;
   debugToggleButton.textContent = state.debugEnabled ? "Debug: 開啟" : "Debug: 關閉";
+}
+
+function renderVehiclePicker() {
+  if (!vehiclePicker) {
+    return;
+  }
+  const activeVehicle = currentVehicle();
+  vehiclePicker.innerHTML = VEHICLE_LIST.map((vehicle) => {
+    const selected = vehicle.id === activeVehicle.id;
+    const cruiseBand = `${displaySpeedKmh(vehicle.maxSpeed * 0.46)}-${displaySpeedKmh(vehicle.maxSpeed * 0.74)} km/h`;
+    return `
+      <button class="vehicle-option${selected ? " active" : ""}" data-vehicle-id="${vehicle.id}" style="--vehicle-badge:${vehicle.accent}">
+        <div class="vehicle-option-header">
+          <div class="vehicle-option-name">
+            <strong>${vehicle.badge}</strong>
+            <span>${vehicle.label}</span>
+          </div>
+          <span class="vehicle-option-badge">${selected ? "目前選用" : "切換"}</span>
+        </div>
+        <p class="vehicle-option-desc">${vehicle.blurb}</p>
+        <div class="vehicle-option-stats">
+          <span class="vehicle-option-pill">巡航 ${cruiseBand}</span>
+          <span class="vehicle-option-pill">起飛 ${displaySpeedKmh(vehicle.rotateSpeed)}-${displaySpeedKmh(vehicle.takeoffSpeed)} km/h</span>
+          <span class="vehicle-option-pill">進場 ${displaySpeedKmh(vehicle.landingMaxTouchdownSpeed)} km/h 內</span>
+        </div>
+      </button>
+    `;
+  }).join("");
+}
+
+function selectVehicle(vehicleId, options = {}) {
+  const vehicle = VEHICLE_PROFILES[vehicleId];
+  if (!vehicle || vehicle.id === state.selectedVehicleId) {
+    return;
+  }
+  state.selectedVehicleId = vehicle.id;
+  if (options.persist !== false) {
+    saveVehicleSetting();
+  }
+  renderVehiclePicker();
+  updateRouteInfo();
+  if (options.playSound !== false) {
+    playSfx("tap");
+  }
 }
 
 function clampThrottle(value) {
@@ -948,6 +1004,7 @@ function getSnapshot() {
   const snapshot = {
     screen: state.screen,
     selectedRoute: state.selectedRoute,
+    selectedVehicleId: state.selectedVehicleId,
     unlockedRoute: state.unlockedRoute,
     stickerCount: stickerCount(),
     debugEnabled: state.debugEnabled,
@@ -961,6 +1018,7 @@ function getSnapshot() {
           bestTime: roundNumber(selectedGhostRecord?.best?.time || 0, 1),
           lastTime: roundNumber(selectedGhostRecord?.last?.time || 0, 1),
           seed: selectedGhost.seed,
+          vehicleId: state.selectedVehicleId,
         }
       : null,
   };
@@ -1055,6 +1113,7 @@ function getSnapshot() {
       spoilers: roundNumber(flight.spoilers, 2),
       nightRatio: roundNumber(nightApproachRatio(flight), 2),
       performanceProfile: flight.performanceProfile || "",
+      vehicleId: flight.vehicleId || "",
       vehicleName: flight.vehicleName || "",
       vehicleBadge: flight.vehicleBadge || "",
       vehicleStyle: flight.vehicleStyle || "",
@@ -1643,7 +1702,7 @@ function updateRouteInfo() {
     ? "目前最佳完賽時間"
     : "等你完成第一趟航班";
   const orbitChallenge = route.orbitChallenge;
-  const vehicle = ACTIVE_VEHICLE;
+  const vehicle = currentVehicle();
   const lowCruiseKmh = displaySpeedKmh(vehicle.maxSpeed * 0.42);
   const midCruiseKmh = displaySpeedKmh(vehicle.maxSpeed * 0.58);
   const highCruiseKmh = displaySpeedKmh(vehicle.maxSpeed * 0.76);
@@ -1741,7 +1800,8 @@ function updateRouteInfo() {
     routeMission.appendChild(li);
   });
   startFlightButton.disabled = locked || transitioning;
-  startFlightButton.textContent = locked ? "尚未解鎖" : transitioning ? "過場飛行中..." : "從 A 機場起飛";
+  startFlightButton.textContent = locked ? "尚未解鎖" : transitioning ? "過場飛行中..." : `以 ${vehicle.badge} 從 A 機場起飛`;
+  renderVehiclePicker();
   updateGhostToggleLabel();
   updateGhostControls();
 }
@@ -3240,7 +3300,8 @@ function cycleFlaps(step = 1) {
 }
 
 function flightSystemsLabel(flight) {
-  const baseVehicleLabel = ACTIVE_VEHICLE.badge || ACTIVE_VEHICLE.label;
+  const activeVehicle = currentVehicle();
+  const baseVehicleLabel = activeVehicle.badge || activeVehicle.label;
   if (!flight) {
     return `${baseVehicleLabel} · 燃油 -- · 方向鍵速度 保持 · 自動襟翼 --`;
   }
@@ -3435,7 +3496,8 @@ function updateOrbitFeedback(flight, route, dt) {
 }
 
 function orbitHudLabel(flight, route) {
-  const vehicleLabel = flight.vehicleBadge || flight.vehicleName || ACTIVE_VEHICLE.badge || ACTIVE_VEHICLE.label;
+  const activeVehicle = currentVehicle();
+  const vehicleLabel = flight.vehicleBadge || flight.vehicleName || activeVehicle.badge || activeVehicle.label;
   const orbitProfile = spaceAltitudeProfile(flight);
   const orbitChallenge = orbitChallengeStatus(route, flight);
   if (flight.orbitMessageTimer > 0.02 && flight.orbitMessage) {
@@ -3546,8 +3608,9 @@ function finishFlight(reason) {
   const summary = resultReasonSummary(reason, flight, route);
   const peakOrbitProfile = spaceAltitudeProfile(flight, flight.peakAltitude || flight.altitude);
   const orbitChallenge = mission.orbitChallenge;
+  const activeVehicle = currentVehicle();
   const body = arrived
-    ? `${routeCodeLabel(route)} · ${flight.vehicleBadge || flight.vehicleName || ACTIVE_VEHICLE.badge} · 飛行 ${flight.elapsed.toFixed(1)} 秒 · 燃油 ${Math.round(currentFuelPercent(flight))}% · 最高高度 ${formatAltitudeValue(peakOrbitProfile.altitudeMeters, true)} · 落地評價 ${flight.touchdownRating || "已完成"}`
+    ? `${routeCodeLabel(route)} · ${flight.vehicleBadge || flight.vehicleName || activeVehicle.badge} · 飛行 ${flight.elapsed.toFixed(1)} 秒 · 燃油 ${Math.round(currentFuelPercent(flight))}% · 最高高度 ${formatAltitudeValue(peakOrbitProfile.altitudeMeters, true)} · 落地評價 ${flight.touchdownRating || "已完成"}`
     : `${routeCodeLabel(route)} · ${summary}`;
   const stats = [
     {
@@ -3557,8 +3620,8 @@ function finishFlight(reason) {
     },
     {
       label: "載具",
-      value: flight.vehicleBadge || flight.vehicleName || ACTIVE_VEHICLE.badge,
-      meta: flight.vehicleBlurb || ACTIVE_VEHICLE.blurb,
+      value: flight.vehicleBadge || flight.vehicleName || activeVehicle.badge,
+      meta: flight.vehicleBlurb || activeVehicle.blurb,
     },
     {
       label: "飛行時間",
@@ -3603,7 +3666,7 @@ function finishFlight(reason) {
         },
   ];
   const notes = [
-    `本次載具：${flight.vehicleBadge || flight.vehicleName || ACTIVE_VEHICLE.badge} · ${flight.vehicleBlurb || ACTIVE_VEHICLE.blurb}`,
+    `本次載具：${flight.vehicleBadge || flight.vehicleName || activeVehicle.badge} · ${flight.vehicleBlurb || activeVehicle.blurb}`,
     arrived
       ? mission.success
         ? `今日航班完成：已從 ${AIRPORTS[route.from].code} 飛抵 ${AIRPORTS[route.to].code}`
@@ -3761,6 +3824,10 @@ function installDebugApi() {
       selectRoute(index);
       return getSnapshot();
     },
+    setVehicle(vehicleId) {
+      selectVehicle(vehicleId, { persist: true, playSound: false });
+      return getSnapshot();
+    },
     setUnlockedRoute(index) {
       state.unlockedRoute = clamp(index, 0, ROUTES.length - 1);
       saveProgress();
@@ -3826,6 +3893,16 @@ function installDebugApi() {
 }
 
 function installEventListeners() {
+  vehiclePicker?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-vehicle-id]");
+    if (!(button instanceof HTMLElement)) {
+      return;
+    }
+    ensureAudioReady();
+    event.preventDefault();
+    selectVehicle(button.dataset.vehicleId);
+  });
+
   startFlightButton.addEventListener("click", () => {
     ensureAudioReady();
     beginMapTransition();

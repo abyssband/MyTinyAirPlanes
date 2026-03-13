@@ -32,12 +32,18 @@ async function main() {
     assert(snapshot.screen === "map", "預期初始畫面在世界地圖");
     logStep("地圖畫面與 debug API 可用");
 
+    await page.locator('[data-vehicle-id="civilAirliner"]').click();
+    snapshot = await getSnapshot(page);
+    assert(snapshot.selectedVehicleId === "civilAirliner", `預期地圖頁可切換機型，實際 ${snapshot.selectedVehicleId}`);
+    logStep("地圖頁機型選擇可切換到一般民航機");
+
     await page.evaluate(() => {
       document.getElementById("start-flight")?.click();
     });
     await page.waitForFunction(() => window.__tinyAirplanes.getSnapshot().screen === "flight", null, { timeout: 9000 });
     snapshot = await getSnapshot(page);
     assert(snapshot.flight?.routeId === "yvr-lax", "預期起飛後進入第一條航線");
+    assert(snapshot.flight?.vehicleId === "civilAirliner", `預期起飛後套用選定機型，實際 ${snapshot.flight?.vehicleId}`);
     assert(snapshot.flight?.phase === "takeoff_roll", "預期飛行開場先進入跑道加速階段");
     logStep("可從地圖進入飛行畫面，並開始跑道滑跑");
 

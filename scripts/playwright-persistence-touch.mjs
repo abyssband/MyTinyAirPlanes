@@ -55,19 +55,21 @@ async function main() {
       stickers: JSON.parse(localStorage.getItem("tiny-airplanes.orbit-stickers") || "{}"),
     }));
     assert(snapshot.unlockedRoute === 2, `預期 migration 後保留已解鎖航線，實際 ${snapshot.unlockedRoute}`);
-    assert(persisted.version === "9", `預期 migration 後寫入 save version 9，實際 ${persisted.version}`);
+    assert(persisted.version === "10", `預期 migration 後寫入 save version 10，實際 ${persisted.version}`);
     assert(persisted.bestRuns?.["yvr-lax"]?.time === 18.5, "預期 migration 後最佳紀錄保留 time");
     assert(Object.keys(persisted.stickers || {}).length === 0, "預期 migration 後會建立空的貼紙收藏欄位");
 
     await desktopPage.evaluate(() => {
       window.__tinyAirplanes.setUnlockedRoute(3);
       window.__tinyAirplanes.setGhost(false);
+      window.__tinyAirplanes.setVehicle("spaceplanePrototype");
     });
     await desktopPage.reload({ waitUntil: "networkidle" });
     await desktopPage.waitForFunction(() => Boolean(window.__tinyAirplanes?.getSnapshot));
     snapshot = await getSnapshot(desktopPage);
     assert(snapshot.unlockedRoute === 3, `預期重整後保留新的解鎖進度，實際 ${snapshot.unlockedRoute}`);
     assert(snapshot.ghostEnabled === false, "預期重整後保留鬼影關閉偏好");
+    assert(snapshot.selectedVehicleId === "spaceplanePrototype", `預期重整後保留機型選擇，實際 ${snapshot.selectedVehicleId}`);
     logStep("存檔 migration 與進度持久化正常");
 
     const mobileContext = await browser.newContext({

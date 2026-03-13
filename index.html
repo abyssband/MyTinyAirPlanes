@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@400;600;700&family=M+PLUS+Rounded+1c:wght@400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./styles.css?v=20260314-0035">
+  <link rel="stylesheet" href="./styles.css?v=20260314-0115">
 </head>
 <body>
   <div class="app-shell">
@@ -64,6 +64,13 @@
               <div id="route-meta" class="briefing-stats" aria-live="polite"></div>
               <div id="route-briefing" class="briefing-checklist"></div>
             </section>
+            <div class="vehicle-card">
+              <div class="vehicle-card-head">
+                <h3>機型選擇</h3>
+                <p>起飛前先選一台今天要飛的載具</p>
+              </div>
+              <div id="vehicle-picker" class="vehicle-picker" aria-live="polite"></div>
+            </div>
             <div class="mission-card">
               <h3>飛行目標</h3>
               <ul id="route-mission" class="mission-list"></ul>
@@ -95,9 +102,9 @@
           </div>
           <div class="hud-extra">
             <p id="hud-phase">狀態: 待命</p>
-            <p id="hud-systems">Orbiter R-7 · 方向鍵速度 保持 · 自動襟翼 1 · 自動空煞 收起</p>
+            <p id="hud-systems">選定載具 · 方向鍵速度 保持 · 自動襟翼 1 · 自動空煞 收起</p>
             <p id="hud-ghost">鬼影 開啟 · 目前沒有紀錄</p>
-            <p id="hud-orbit">Orbiter R-7 巡航中 · 高空貼紙目標待命</p>
+            <p id="hud-orbit">選定載具巡航中 · 高空貼紙目標待命</p>
             <p id="hud-mission">先沿 A 機場跑道加速起飛，最後在 B 機場跑道接地並滑停</p>
           </div>
           <pre id="debug-panel" class="debug-panel hidden" aria-live="polite"></pre>
@@ -144,6 +151,6 @@
     <button id="touch-right" class="touch-btn touch-btn-small">加速</button>
   </div>
 
-  <script type="module" src="./main.js?v=20260314-0035"></script>
+  <script type="module" src="./main.js?v=20260314-0115"></script>
 </body>
 </html>

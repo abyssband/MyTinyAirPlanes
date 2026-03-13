@@ -2,6 +2,7 @@ import {
   CURRENT_SAVE_VERSION,
   FORCE_DEBUG,
   FORCE_MUTE,
+  HAS_VEHICLE_OVERRIDE,
   ROUTES,
   STORAGE_AUDIO_KEY,
   STORAGE_BEST_KEY,
@@ -11,8 +12,11 @@ import {
   STORAGE_SAVE_VERSION_KEY,
   STORAGE_STICKERS_KEY,
   STORAGE_UNLOCK_KEY,
-} from "./config.js?v=20260314-0035";
-import { clamp } from "./utils.js?v=20260314-0035";
+  STORAGE_VEHICLE_KEY,
+  VEHICLE_PROFILES,
+  ACTIVE_VEHICLE_ID,
+} from "./config.js?v=20260314-0115";
+import { clamp } from "./utils.js?v=20260314-0115";
 
 export function normalizeBestRuns(raw) {
   const bestRuns = {};
@@ -115,11 +119,16 @@ function readUnlocked(storage) {
   return Number.isFinite(unlocked) ? clamp(unlocked, 0, ROUTES.length - 1) : 0;
 }
 
+function normalizeVehicleId(value) {
+  return VEHICLE_PROFILES[value] ? value : ACTIVE_VEHICLE_ID;
+}
+
 export function loadPersistedState(storage) {
   const unlockedRoute = readUnlocked(storage);
   const bestRuns = normalizeBestRuns(readJson(storage, STORAGE_BEST_KEY, "{}"));
   const ghostRuns = normalizeGhostRuns(readJson(storage, STORAGE_GHOSTS_KEY, "{}"));
   const stickerCollection = normalizeStickerCollection(readJson(storage, STORAGE_STICKERS_KEY, "{}"));
+  const storedVehicleId = normalizeVehicleId(storage.getItem(STORAGE_VEHICLE_KEY));
   const audioRaw = storage.getItem(STORAGE_AUDIO_KEY);
   const debugRaw = storage.getItem(STORAGE_DEBUG_KEY);
   const ghostEnabledRaw = storage.getItem(STORAGE_GHOST_ENABLED_KEY);
@@ -130,6 +139,7 @@ export function loadPersistedState(storage) {
     bestRuns,
     ghostRuns,
     stickerCollection,
+    selectedVehicleId: HAS_VEHICLE_OVERRIDE ? ACTIVE_VEHICLE_ID : storedVehicleId,
     audioEnabled: FORCE_MUTE ? false : audioRaw === null ? true : audioRaw === "1",
     debugEnabled: FORCE_DEBUG ? debugRaw === "1" : false,
     ghostEnabled: ghostEnabledRaw === null ? true : ghostEnabledRaw === "1",
@@ -149,17 +159,19 @@ function persistFullState(storage, snapshot) {
   storage.setItem(STORAGE_BEST_KEY, JSON.stringify(snapshot.bestRuns));
   storage.setItem(STORAGE_GHOSTS_KEY, JSON.stringify(snapshot.ghostRuns || {}));
   storage.setItem(STORAGE_STICKERS_KEY, JSON.stringify(normalizeStickerCollection(snapshot.stickerCollection || {})));
+  storage.setItem(STORAGE_VEHICLE_KEY, normalizeVehicleId(snapshot.selectedVehicleId));
   storage.setItem(STORAGE_AUDIO_KEY, snapshot.audioEnabled ? "1" : "0");
   storage.setItem(STORAGE_DEBUG_KEY, snapshot.debugEnabled ? "1" : "0");
   storage.setItem(STORAGE_GHOST_ENABLED_KEY, snapshot.ghostEnabled ? "1" : "0");
 }
 
-export function saveProgressData(storage, unlockedRoute, bestRuns, ghostRuns = {}, stickerCollection = {}) {
+export function saveProgressData(storage, unlockedRoute, bestRuns, ghostRuns = {}, stickerCollection = {}, selectedVehicleId = ACTIVE_VEHICLE_ID) {
   storage.setItem(STORAGE_SAVE_VERSION_KEY, String(CURRENT_SAVE_VERSION));
   storage.setItem(STORAGE_UNLOCK_KEY, String(unlockedRoute));
   storage.setItem(STORAGE_BEST_KEY, JSON.stringify(bestRuns));
   storage.setItem(STORAGE_GHOSTS_KEY, JSON.stringify(normalizeGhostRuns(ghostRuns)));
   storage.setItem(STORAGE_STICKERS_KEY, JSON.stringify(normalizeStickerCollection(stickerCollection)));
+  storage.setItem(STORAGE_VEHICLE_KEY, normalizeVehicleId(selectedVehicleId));
 }
 
 export function saveAudioPreference(storage, enabled) {
@@ -180,4 +192,9 @@ export function saveGhostData(storage, ghostRuns) {
 export function saveGhostPreference(storage, enabled) {
   storage.setItem(STORAGE_SAVE_VERSION_KEY, String(CURRENT_SAVE_VERSION));
   storage.setItem(STORAGE_GHOST_ENABLED_KEY, enabled ? "1" : "0");
+}
+
+export function saveVehiclePreference(storage, vehicleId) {
+  storage.setItem(STORAGE_SAVE_VERSION_KEY, String(CURRENT_SAVE_VERSION));
+  storage.setItem(STORAGE_VEHICLE_KEY, normalizeVehicleId(vehicleId));
 }
