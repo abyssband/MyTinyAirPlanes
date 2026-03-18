@@ -204,6 +204,7 @@ export function createFlightRuntime(deps) {
     const planeBottomOffset = 18;
     const altitude = runwayAltitude + planeBottomOffset;
     const arrivalAirportX = route.distance + 5200 + route.difficulty * 420;
+    const compactRhythm = clamp((2.4 - route.estimatedGameMinutes) / 1.8, 0, 1);
     const clouds = createClouds(9, route.palette, rng);
     const baseFuel = (120 + route.difficulty * 18 + route.estimatedGameMinutes * 60 * 0.92) * (vehicle.fuelCapacityMultiplier || 1);
     return {
@@ -214,8 +215,8 @@ export function createFlightRuntime(deps) {
       worldX: -runwayHalf + 34,
       routeDistance: route.distance,
       arrivalAirportX,
-      descentStartProgress: 0.56,
-      approachStartProgress: 0.76,
+      descentStartProgress: lerp(0.56, 0.44, compactRhythm),
+      approachStartProgress: lerp(0.76, 0.64, compactRhythm),
       speed: 0,
       throttle: 0.82,
       throttleTarget: 0.82,
@@ -254,9 +255,9 @@ export function createFlightRuntime(deps) {
       landingMaxTouchdownSpeed: vehicle.landingMaxTouchdownSpeed,
       landingSafePitch: 0.24,
       landingCrashPitch: 0.34,
-      flareStartDistance: 760,
+      flareStartDistance: lerp(760, 880, compactRhythm),
       flareHeight: 144,
-      gearDeployDistance: 1880,
+      gearDeployDistance: lerp(1880, 2240, compactRhythm),
       rolloutStopSpeed: 22,
       takeoffAccel: vehicle.takeoffAccel * effects.launchBoost,
       rollBrake: vehicle.rollBrake,

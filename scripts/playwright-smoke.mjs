@@ -32,10 +32,15 @@ async function main() {
     assert(snapshot.screen === "map", "預期初始畫面在世界地圖");
     logStep("地圖畫面與 debug API 可用");
 
-    await page.locator('[data-vehicle-id="civilAirliner"]').click();
+    await page.locator("#open-hangar").click();
+    await page.waitForFunction(() => window.__tinyAirplanes.getSnapshot().hangarOpen === true, null, { timeout: 3000 });
+    await page.locator('#hangar-list [data-vehicle-id="civilAirliner"]').click();
     snapshot = await getSnapshot(page);
     assert(snapshot.selectedVehicleId === "civilAirliner", `預期地圖頁可切換機型，實際 ${snapshot.selectedVehicleId}`);
-    logStep("地圖頁機型選擇可切換到一般民航機");
+    assert(snapshot.hangarOpen === true, "預期選機時 hangar overlay 應保持開啟");
+    await page.locator("#close-hangar").click();
+    await page.waitForFunction(() => window.__tinyAirplanes.getSnapshot().hangarOpen === false, null, { timeout: 3000 });
+    logStep("機庫選機頁可開啟並切換到一般民航機");
 
     await page.evaluate(() => {
       document.getElementById("start-flight")?.click();
@@ -46,6 +51,22 @@ async function main() {
     assert(snapshot.flight?.vehicleId === "civilAirliner", `預期起飛後套用選定機型，實際 ${snapshot.flight?.vehicleId}`);
     assert(snapshot.flight?.phase === "takeoff_roll", "預期飛行開場先進入跑道加速階段");
     logStep("可從地圖進入飛行畫面，並開始跑道滑跑");
+
+    await page.locator("#autoplay-toggle").click();
+    await page.waitForFunction(() => {
+      const snapshot = window.__tinyAirplanes.getSnapshot();
+      return snapshot.autoPlayEnabled === true && snapshot.flight?.right === true;
+    }, null, { timeout: 3000 });
+    snapshot = await getSnapshot(page);
+    assert(snapshot.autoPlayEnabled === true, "預期自動飛行按鈕可切換成開啟");
+    assert(snapshot.flight?.right === true, "預期自動飛行開啟後會開始自動加速起飛");
+    await page.keyboard.down("ArrowLeft");
+    await page.waitForFunction(() => {
+      const snapshot = window.__tinyAirplanes.getSnapshot();
+      return snapshot.autoPlayEnabled === false && snapshot.flight?.left === true;
+    }, null, { timeout: 3000 });
+    await page.keyboard.up("ArrowLeft");
+    logStep("自動飛行可切換，手動方向鍵會接管控制");
 
     logStep("起飛開場狀態正確，接著切到穩定巡航區段測核心操控");
 

@@ -14,7 +14,8 @@
     "test:playwright:determinism": "node ./scripts/playwright-determinism.mjs",
     "test:playwright:ghost": "node ./scripts/playwright-ghost.mjs",
     "test:playwright:continue": "node ./scripts/playwright-result-continue.mjs",
-    "test:playwright:all": "npm run test:playwright && npm run test:playwright:continue && npm run test:playwright:fail-missed && npm run test:playwright:fail-takeoff-overrun && npm run test:playwright:fail-landing-overrun && npm run test:playwright:sunset-no-fail && npm run test:playwright:fail-crash && npm run test:playwright:fuel && npm run test:playwright:persistence-touch && npm run test:playwright:determinism && npm run test:playwright:ghost"
+    "test:playwright:autoplay-landing": "node ./scripts/playwright-autoplay-landing.mjs",
+    "test:playwright:all": "npm run test:playwright && npm run test:playwright:autoplay-landing && npm run test:playwright:continue && npm run test:playwright:fail-missed && npm run test:playwright:fail-takeoff-overrun && npm run test:playwright:fail-landing-overrun && npm run test:playwright:sunset-no-fail && npm run test:playwright:fail-crash && npm run test:playwright:fuel && npm run test:playwright:persistence-touch && npm run test:playwright:determinism && npm run test:playwright:ghost"
   },
   "devDependencies": {
     "playwright": "^1.58.2"

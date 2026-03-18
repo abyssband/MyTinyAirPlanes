@@ -12,10 +12,10 @@ import {
   STORAGE_STICKERS_KEY,
   STORAGE_UNLOCK_KEY,
   VEHICLE_PROFILES,
-} from "./src/config.js?v=20260314-0115";
-import { createAudioController } from "./src/audio.js?v=20260314-0115";
-import { createFlightRenderer } from "./src/flight/render.js?v=20260314-0115";
-import { createFlightRuntime } from "./src/flight/runtime.js?v=20260314-0115";
+} from "./src/config.js?v=20260318-2215";
+import { createAudioController } from "./src/audio.js?v=20260318-2215";
+import { createFlightRenderer } from "./src/flight/render.js?v=20260318-2215";
+import { createFlightRuntime } from "./src/flight/runtime.js?v=20260318-2215";
 import {
   loadPersistedState,
   saveAudioPreference,
@@ -23,7 +23,7 @@ import {
   saveGhostPreference,
   saveProgressData,
   saveVehiclePreference,
-} from "./src/storage.js?v=20260314-0115";
+} from "./src/storage.js?v=20260318-2215";
 import {
   blendHex,
   clamp,
@@ -33,7 +33,7 @@ import {
   lerp,
   roundNumber,
   smoothStep,
-} from "./src/utils.js?v=20260314-0115";
+} from "./src/utils.js?v=20260318-2215";
 
 const mapScreen = document.getElementById("map-screen");
 const flightScreen = document.getElementById("flight-screen");
@@ -53,7 +53,15 @@ const routeFromName = document.getElementById("route-from-name");
 const routeToCode = document.getElementById("route-to-code");
 const routeToName = document.getElementById("route-to-name");
 const routeBriefing = document.getElementById("route-briefing");
-const vehiclePicker = document.getElementById("vehicle-picker");
+const vehicleSummary = document.getElementById("vehicle-summary");
+const openHangarButton = document.getElementById("open-hangar");
+const hangarOverlay = document.getElementById("hangar-overlay");
+const hangarBackdrop = document.getElementById("hangar-backdrop");
+const closeHangarButton = document.getElementById("close-hangar");
+const hangarList = document.getElementById("hangar-list");
+const hangarCanvas = document.getElementById("hangar-canvas");
+const hangarCtx = hangarCanvas?.getContext("2d");
+const hangarStageMeta = document.getElementById("hangar-stage-meta");
 const ghostSlotMeta = document.getElementById("ghost-slot-meta");
 const ghostSlotBestButton = document.getElementById("ghost-slot-best");
 const ghostSlotLastButton = document.getElementById("ghost-slot-last");
@@ -75,6 +83,7 @@ const hudSystems = document.getElementById("hud-systems");
 const hudGhost = document.getElementById("hud-ghost");
 const hudOrbit = document.getElementById("hud-orbit");
 const hudMission = document.getElementById("hud-mission");
+const autoplayToggleButton = document.getElementById("autoplay-toggle");
 const debugPanel = document.getElementById("debug-panel");
 
 const resultTitle = document.getElementById("result-title");
@@ -110,6 +119,8 @@ const state = {
   ghostRuns: {},
   stickerCollection: {},
   selectedVehicleId: ACTIVE_VEHICLE_ID,
+  hangarOpen: false,
+  autoPlayEnabled: false,
   mapHoverRoute: -1,
   mapHoverRegion: "",
   mapRegionPop: {},
@@ -283,6 +294,14 @@ function saveVehicleSetting() {
   saveVehiclePreference(localStorage, state.selectedVehicleId);
 }
 
+function releaseFlightInputs() {
+  state.input.up = false;
+  state.input.down = false;
+  state.input.left = false;
+  state.input.right = false;
+  state.input.airbrake = false;
+}
+
 function currentVehicle() {
   return VEHICLE_PROFILES[state.selectedVehicleId] || VEHICLE_PROFILES[ACTIVE_VEHICLE_ID] || VEHICLE_LIST[0];
 }
@@ -323,32 +342,38 @@ function updateDebugToggleLabel() {
   debugToggleButton.textContent = state.debugEnabled ? "Debug: 開啟" : "Debug: 關閉";
 }
 
-function renderVehiclePicker() {
-  if (!vehiclePicker) {
+function updateAutoplayToggleLabel() {
+  if (!autoplayToggleButton) {
     return;
   }
-  const activeVehicle = currentVehicle();
-  vehiclePicker.innerHTML = VEHICLE_LIST.map((vehicle) => {
-    const selected = vehicle.id === activeVehicle.id;
-    const cruiseBand = `${displaySpeedKmh(vehicle.maxSpeed * 0.46)}-${displaySpeedKmh(vehicle.maxSpeed * 0.74)} km/h`;
-    return `
-      <button class="vehicle-option${selected ? " active" : ""}" data-vehicle-id="${vehicle.id}" style="--vehicle-badge:${vehicle.accent}">
-        <div class="vehicle-option-header">
-          <div class="vehicle-option-name">
-            <strong>${vehicle.badge}</strong>
-            <span>${vehicle.label}</span>
-          </div>
-          <span class="vehicle-option-badge">${selected ? "目前選用" : "切換"}</span>
-        </div>
-        <p class="vehicle-option-desc">${vehicle.blurb}</p>
-        <div class="vehicle-option-stats">
-          <span class="vehicle-option-pill">巡航 ${cruiseBand}</span>
-          <span class="vehicle-option-pill">起飛 ${displaySpeedKmh(vehicle.rotateSpeed)}-${displaySpeedKmh(vehicle.takeoffSpeed)} km/h</span>
-          <span class="vehicle-option-pill">進場 ${displaySpeedKmh(vehicle.landingMaxTouchdownSpeed)} km/h 內</span>
-        </div>
-      </button>
-    `;
-  }).join("");
+  autoplayToggleButton.textContent = state.autoPlayEnabled ? "自動飛行: 開" : "自動飛行: 關";
+  autoplayToggleButton.classList.toggle("active", state.autoPlayEnabled);
+  autoplayToggleButton.setAttribute("aria-pressed", state.autoPlayEnabled ? "true" : "false");
+}
+
+function setAutoplayEnabled(enabled, options = {}) {
+  const nextValue = Boolean(enabled);
+  if (state.autoPlayEnabled === nextValue) {
+    updateAutoplayToggleLabel();
+    return;
+  }
+  state.autoPlayEnabled = nextValue;
+  if (!nextValue) {
+    releaseFlightInputs();
+  }
+  updateAutoplayToggleLabel();
+  if (options.playSound !== false) {
+    ensureAudioReady();
+    playSfx(nextValue ? "start" : "tap");
+  }
+  updateHud();
+}
+
+function disableAutoplayForManualControl() {
+  if (!state.autoPlayEnabled) {
+    return;
+  }
+  setAutoplayEnabled(false, { playSound: false });
 }
 
 function selectVehicle(vehicleId, options = {}) {
@@ -360,11 +385,396 @@ function selectVehicle(vehicleId, options = {}) {
   if (options.persist !== false) {
     saveVehicleSetting();
   }
-  renderVehiclePicker();
+  renderVehicleSummary();
+  renderHangarRoster();
+  drawHangarStage();
   updateRouteInfo();
   if (options.playSound !== false) {
     playSfx("tap");
   }
+}
+
+function setHangarOpen(open) {
+  state.hangarOpen = Boolean(open) && state.screen === "map";
+  if (hangarOverlay) {
+    hangarOverlay.classList.toggle("hidden", !state.hangarOpen);
+    hangarOverlay.setAttribute("aria-hidden", state.hangarOpen ? "false" : "true");
+  }
+  document.body.classList.toggle("hangar-open", state.hangarOpen);
+  if (state.hangarOpen) {
+    renderHangarRoster();
+    renderVehicleSummary();
+    drawHangarStage();
+  }
+}
+
+function drawHangarSpark(ctx, x, y, radius, color) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  for (let i = 0; i < 8; i += 1) {
+    const angle = (i / 8) * Math.PI * 2;
+    const r = i % 2 === 0 ? radius : radius * 0.44;
+    const px = Math.cos(angle) * r;
+    const py = Math.sin(angle) * r;
+    if (i === 0) {
+      ctx.moveTo(px, py);
+    } else {
+      ctx.lineTo(px, py);
+    }
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawHangarCloud(ctx, x, y, scale = 1, alpha = 0.86) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = "rgba(255,255,255,0.94)";
+  ctx.beginPath();
+  ctx.arc(-22, 0, 18, 0, Math.PI * 2);
+  ctx.arc(0, -8, 22, 0, Math.PI * 2);
+  ctx.arc(24, 2, 16, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawHangarAirliner(ctx, vehicle, w, h) {
+  ctx.save();
+  ctx.translate(w * 0.48, h * 0.5);
+  ctx.rotate(-0.08);
+  ctx.fillStyle = "rgba(33, 52, 74, 0.12)";
+  ctx.beginPath();
+  ctx.ellipse(-6, 76, 170, 24, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  const bodyGradient = ctx.createLinearGradient(-180, -42, 150, 52);
+  bodyGradient.addColorStop(0, blendHex(vehicle.accent, "#ffffff", 0.56));
+  bodyGradient.addColorStop(0.45, "#ffffff");
+  bodyGradient.addColorStop(1, blendHex(vehicle.accent, "#d7ebff", 0.32));
+  ctx.fillStyle = bodyGradient;
+  ctx.beginPath();
+  ctx.moveTo(-168, 6);
+  ctx.quadraticCurveTo(-70, -54, 86, -36);
+  ctx.quadraticCurveTo(130, -30, 162, -2);
+  ctx.quadraticCurveTo(132, 28, 22, 40);
+  ctx.quadraticCurveTo(-122, 48, -170, 16);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = blendHex(vehicle.stripe, "#ffffff", 0.16);
+  ctx.fillRect(-120, -10, 194, 14);
+  ctx.fillStyle = "rgba(34, 68, 95, 0.92)";
+  for (let i = -96; i <= 44; i += 22) {
+    ctx.beginPath();
+    ctx.roundRect(i, -6, 12, 9, 4);
+    ctx.fill();
+  }
+
+  ctx.fillStyle = "#dbe8f6";
+  ctx.beginPath();
+  ctx.moveTo(-26, 8);
+  ctx.lineTo(-168, 78);
+  ctx.lineTo(22, 36);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(-36, -2);
+  ctx.lineTo(-138, -56);
+  ctx.lineTo(8, -16);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = blendHex(vehicle.accent, "#ffffff", 0.3);
+  ctx.beginPath();
+  ctx.moveTo(-138, -6);
+  ctx.lineTo(-194, -58);
+  ctx.lineTo(-126, -18);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = "rgba(34, 68, 95, 0.88)";
+  ctx.beginPath();
+  ctx.arc(112, -8, 22, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawHangarSpaceplane(ctx, vehicle, w, h) {
+  ctx.save();
+  ctx.translate(w * 0.5, h * 0.5);
+  ctx.rotate(-0.13);
+  ctx.fillStyle = "rgba(20, 36, 56, 0.14)";
+  ctx.beginPath();
+  ctx.ellipse(-6, 82, 164, 22, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  const glow = ctx.createLinearGradient(-260, 0, -40, 0);
+  glow.addColorStop(0, "rgba(119, 221, 255, 0)");
+  glow.addColorStop(0.55, "rgba(119, 221, 255, 0.24)");
+  glow.addColorStop(1, "rgba(255, 210, 148, 0)");
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.moveTo(-42, -6);
+  ctx.lineTo(-266, -26);
+  ctx.lineTo(-266, 26);
+  ctx.lineTo(-42, 6);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = "#eef6ff";
+  ctx.beginPath();
+  ctx.moveTo(-164, 4);
+  ctx.quadraticCurveTo(-44, -66, 92, -42);
+  ctx.quadraticCurveTo(132, -30, 164, 0);
+  ctx.quadraticCurveTo(118, 34, -8, 42);
+  ctx.quadraticCurveTo(-122, 38, -166, 16);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = "rgba(25, 32, 48, 0.92)";
+  ctx.beginPath();
+  ctx.moveTo(-54, 10);
+  ctx.quadraticCurveTo(16, 6, 88, -4);
+  ctx.lineTo(52, 24);
+  ctx.quadraticCurveTo(-26, 28, -68, 20);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = blendHex(vehicle.accent, "#ffffff", 0.12);
+  ctx.beginPath();
+  ctx.moveTo(-42, 4);
+  ctx.lineTo(-212, 78);
+  ctx.lineTo(-24, 28);
+  ctx.lineTo(42, 40);
+  ctx.lineTo(12, 8);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(-48, 0);
+  ctx.lineTo(-172, -78);
+  ctx.lineTo(-8, -18);
+  ctx.lineTo(28, -8);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = blendHex(vehicle.accent, "#ffffff", 0.34);
+  ctx.beginPath();
+  ctx.moveTo(-104, -12);
+  ctx.lineTo(34, -18);
+  ctx.lineTo(24, -4);
+  ctx.lineTo(-110, -2);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = "#18304d";
+  ctx.beginPath();
+  ctx.moveTo(28, -38);
+  ctx.quadraticCurveTo(74, -54, 90, -10);
+  ctx.quadraticCurveTo(48, 2, 18, -10);
+  ctx.closePath();
+  ctx.fill();
+
+  drawHangarSpark(ctx, -150, -70, 13, vehicle.stripe);
+  ctx.restore();
+}
+
+function drawHangarShuttle(ctx, vehicle, w, h) {
+  ctx.save();
+  ctx.translate(w * 0.48, h * 0.5);
+  ctx.rotate(-0.1);
+  ctx.fillStyle = "rgba(16, 30, 47, 0.16)";
+  ctx.beginPath();
+  ctx.ellipse(-4, 84, 176, 24, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  const bodyGradient = ctx.createLinearGradient(-180, -50, 150, 70);
+  bodyGradient.addColorStop(0, "#eef3fb");
+  bodyGradient.addColorStop(0.5, "#ffffff");
+  bodyGradient.addColorStop(1, blendHex(vehicle.accent, "#d8e4f6", 0.36));
+  ctx.fillStyle = bodyGradient;
+  ctx.beginPath();
+  ctx.moveTo(-170, 8);
+  ctx.quadraticCurveTo(-48, -64, 84, -40);
+  ctx.quadraticCurveTo(126, -28, 156, 0);
+  ctx.quadraticCurveTo(132, 34, 28, 44);
+  ctx.quadraticCurveTo(-112, 48, -172, 18);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = "rgba(23, 30, 42, 0.96)";
+  ctx.beginPath();
+  ctx.moveTo(-64, 12);
+  ctx.quadraticCurveTo(8, 10, 94, -2);
+  ctx.lineTo(62, 28);
+  ctx.quadraticCurveTo(-18, 34, -70, 24);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = blendHex(vehicle.accent, "#ffffff", 0.16);
+  ctx.beginPath();
+  ctx.moveTo(-48, 6);
+  ctx.lineTo(-210, 76);
+  ctx.lineTo(-28, 32);
+  ctx.lineTo(18, 40);
+  ctx.lineTo(2, 10);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(-48, 0);
+  ctx.lineTo(-156, -80);
+  ctx.lineTo(-6, -20);
+  ctx.lineTo(14, -10);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = vehicle.stripe;
+  ctx.fillRect(-126, -10, 154, 10);
+
+  ctx.fillStyle = "rgba(24, 32, 46, 0.98)";
+  ctx.beginPath();
+  ctx.moveTo(30, -44);
+  ctx.quadraticCurveTo(78, -52, 88, -2);
+  ctx.quadraticCurveTo(42, 2, 20, -8);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(-62, -4);
+  ctx.lineTo(-92, -96);
+  ctx.lineTo(-54, -90);
+  ctx.lineTo(-20, -10);
+  ctx.closePath();
+  ctx.fill();
+
+  drawHangarSpark(ctx, -132, -74, 12, vehicle.stripe);
+  drawHangarSpark(ctx, 150, -92, 9, blendHex(vehicle.accent, "#ffffff", 0.2));
+  ctx.restore();
+}
+
+function renderHangarStageMeta() {
+  if (!hangarStageMeta) {
+    return;
+  }
+  const vehicle = currentVehicle();
+  hangarStageMeta.innerHTML = `
+    <div class="hangar-stage-copy">
+      <h3>${vehicle.badge} · ${vehicle.hangar?.role || vehicle.label}</h3>
+      <p>${vehicle.hangar?.note || vehicle.blurb}</p>
+    </div>
+    <div class="hangar-stage-pills">
+      ${(vehicle.hangar?.highlights || []).map((item) => `<span class="hangar-stage-pill">${item}</span>`).join("")}
+      <span class="hangar-stage-pill">最高 ${displaySpeedKmh(vehicle.maxSpeed)} km/h</span>
+      <span class="hangar-stage-pill">起飛 ${displaySpeedKmh(vehicle.takeoffSpeed)} km/h</span>
+      <span class="hangar-stage-pill">進場 ${displaySpeedKmh(vehicle.landingMaxTouchdownSpeed)} km/h 內</span>
+    </div>
+  `;
+}
+
+function drawHangarStage() {
+  if (!hangarCanvas || !hangarCtx) {
+    return;
+  }
+  resizeCanvas(hangarCanvas);
+  const ctx = hangarCtx;
+  const vehicle = currentVehicle();
+  const w = hangarCanvas.width;
+  const h = hangarCanvas.height;
+
+  const sky = ctx.createLinearGradient(0, 0, 0, h);
+  sky.addColorStop(0, blendHex(vehicle.accent, "#fff3d8", 0.46));
+  sky.addColorStop(0.56, blendHex(vehicle.accent, "#f2f8ff", 0.22));
+  sky.addColorStop(1, "#dff0ff");
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.fillStyle = "rgba(255,255,255,0.22)";
+  for (let x = 0; x < w; x += 42) {
+    ctx.fillRect(x, 0, 1, h);
+  }
+  for (let y = 0; y < h; y += 36) {
+    ctx.fillRect(0, y, w, 1);
+  }
+
+  drawHangarCloud(ctx, w * 0.18, h * 0.2, 1.1, 0.82);
+  drawHangarCloud(ctx, w * 0.86, h * 0.24, 0.92, 0.68);
+  drawHangarCloud(ctx, w * 0.74, h * 0.72, 0.7, 0.48);
+
+  ctx.fillStyle = "rgba(255, 255, 255, 0.68)";
+  ctx.fillRect(0, h * 0.8, w, h * 0.2);
+  ctx.fillStyle = "rgba(113, 153, 194, 0.16)";
+  ctx.fillRect(0, h * 0.83, w, 3);
+  ctx.fillRect(0, h * 0.9, w, 2);
+
+  if (vehicle.style === "spaceplane") {
+    drawHangarSpaceplane(ctx, vehicle, w, h);
+  } else if (vehicle.style === "shuttle") {
+    drawHangarShuttle(ctx, vehicle, w, h);
+  } else {
+    drawHangarAirliner(ctx, vehicle, w, h);
+  }
+
+  drawHangarSpark(ctx, w * 0.12, h * 0.14, 14, blendHex(vehicle.stripe, "#fff7d6", 0.3));
+  drawHangarSpark(ctx, w * 0.88, h * 0.16, 10, blendHex(vehicle.accent, "#ffffff", 0.18));
+
+  renderHangarStageMeta();
+}
+
+function renderVehicleSummary() {
+  if (!vehicleSummary) {
+    return;
+  }
+  const vehicle = currentVehicle();
+  const cruiseBand = `${displaySpeedKmh(vehicle.maxSpeed * 0.46)}-${displaySpeedKmh(vehicle.maxSpeed * 0.74)} km/h`;
+  vehicleSummary.innerHTML = `
+    <div class="vehicle-summary-top">
+      <div class="vehicle-summary-name">
+        <strong>${vehicle.badge}</strong>
+        <span>${vehicle.label} · ${vehicle.hangar?.role || "今日出勤機型"}</span>
+      </div>
+      <span class="vehicle-summary-badge" style="--vehicle-badge:${vehicle.accent}">${vehicle.hangar?.stamp || "hangar pick"}</span>
+    </div>
+    <p class="vehicle-summary-note">${vehicle.hangar?.note || vehicle.blurb}</p>
+    <div class="vehicle-summary-pills">
+      <span class="vehicle-summary-pill">巡航 ${cruiseBand}</span>
+      <span class="vehicle-summary-pill">起飛 ${displaySpeedKmh(vehicle.rotateSpeed)}-${displaySpeedKmh(vehicle.takeoffSpeed)} km/h</span>
+      <span class="vehicle-summary-pill">進場 ${displaySpeedKmh(vehicle.landingMaxTouchdownSpeed)} km/h 內</span>
+    </div>
+  `;
+}
+
+function renderHangarRoster() {
+  if (!hangarList) {
+    return;
+  }
+  const activeVehicle = currentVehicle();
+  hangarList.innerHTML = `
+    <p class="hangar-roster-note">每台機型都有不同的飛行性格，選好再回到航線簡報起飛。</p>
+    ${VEHICLE_LIST.map((vehicle) => {
+      const selected = vehicle.id === activeVehicle.id;
+      const cruiseBand = `${displaySpeedKmh(vehicle.maxSpeed * 0.46)}-${displaySpeedKmh(vehicle.maxSpeed * 0.74)} km/h`;
+      return `
+        <button class="vehicle-option${selected ? " active selected-for-stage" : ""}" data-vehicle-id="${vehicle.id}" style="--vehicle-badge:${vehicle.accent}">
+          <div class="vehicle-option-header">
+            <div class="vehicle-option-name">
+              <strong>${vehicle.badge}</strong>
+              <span>${vehicle.label}</span>
+            </div>
+            <span class="vehicle-option-badge">${selected ? "目前選用" : "選這台"}</span>
+          </div>
+          <p class="vehicle-option-desc">${vehicle.hangar?.note || vehicle.blurb}</p>
+          <div class="vehicle-option-stats">
+            <span class="vehicle-option-pill">${vehicle.hangar?.role || "飛行風格"}</span>
+            <span class="vehicle-option-pill">巡航 ${cruiseBand}</span>
+            <span class="vehicle-option-pill">${vehicle.hangar?.highlights?.[0] || "今日出擊"}</span>
+          </div>
+        </button>
+      `;
+    }).join("")}
+  `;
 }
 
 function clampThrottle(value) {
@@ -669,6 +1079,15 @@ function speedControlLabel(flight) {
   if (!flight) {
     return "保持";
   }
+  if (state.autoPlayEnabled) {
+    if (flight.grounded && flight.runwayState === "departure") {
+      return "自動起飛";
+    }
+    if (flight.grounded && flight.runwayState === "arrival") {
+      return "自動滑停";
+    }
+    return flight.phase === "approach" || flight.phase === "descent" ? "自動進場" : "自動巡航";
+  }
   if (state.input.left) {
     return flight.grounded && flight.runwayState === "arrival" ? "地面煞停" : "減速";
   }
@@ -703,6 +1122,161 @@ function updateFlightSystems(flight, dt) {
   } else if (!flight.grounded) {
     flight.spoilers = Math.max(0, flight.spoilers - dt * 1.1);
   }
+}
+
+function autoplayCruiseBandId(flight) {
+  const progress = routeProgress(flight);
+  if (flight.vehicleId === "civilAirliner") {
+    return "mid";
+  }
+  if (flight.vehicleId === "spaceplanePrototype") {
+    return progress < 0.44 ? "high" : "mid";
+  }
+  if (flight.vehicleId === "reusableShuttle") {
+    return progress < 0.4 ? "high" : "mid";
+  }
+  return "mid";
+}
+
+function autoplayTargetAltitude(flight) {
+  const oceanAltitude = oceanSurfaceAt(flight.worldX);
+  const runwayBase = flight.runwayAltitude + flight.planeBottomOffset;
+  const bands = getAltitudeRouteBands(flight);
+  const bandById = Object.fromEntries(bands.map((band) => [band.id, band]));
+  const landingAssist = landingAssistState(flight);
+  if (flight.grounded) {
+    return runwayBase;
+  }
+  if (flight.phase === "climbout") {
+    return oceanAltitude + bandById.mid.center;
+  }
+  if (flight.phase === "cruise") {
+    const preferredBand = bandById[autoplayCruiseBandId(flight)] || bandById.mid;
+    return oceanAltitude + preferredBand.center + (preferredBand.id === "high" ? 24 : 0);
+  }
+  if (flight.phase === "descent") {
+    const descentStart = oceanAltitude + bandById.mid.center * 0.88;
+    const descentEnd = runwayBase + 196;
+    const span = Math.max(0.001, flight.approachStartProgress - flight.descentStartProgress);
+    const t = clamp((routeProgress(flight) - flight.descentStartProgress) / span, 0, 1);
+    return lerp(descentStart, descentEnd, smoothStep(t));
+  }
+  if (flight.phase === "approach") {
+    if (landingAssist.flareWindow) {
+      return runwayBase + 10;
+    }
+    return runwayBase + clamp(landingAssist.distanceToThreshold * 0.14, 14, 220);
+  }
+  return oceanAltitude + bandById.mid.center;
+}
+
+function autoplayTargetSpeed(flight) {
+  const preferredBand = autoplayCruiseBandId(flight);
+  if (flight.grounded && flight.runwayState === "departure") {
+    return currentTakeoffSpeed(flight) + 60;
+  }
+  if (flight.phase === "climbout") {
+    return Math.max(flight.minAirSpeed + 120, Math.min(flight.maxSpeed * 0.48, flight.takeoffSpeed * 1.08));
+  }
+  if (flight.phase === "descent") {
+    return Math.min(flight.maxSpeed * 0.42, flight.landingMaxTouchdownSpeed * 1.02);
+  }
+  if (flight.phase === "approach") {
+    return landingAssistState(flight).flareWindow
+      ? flight.landingMaxTouchdownSpeed * 0.64
+      : flight.landingMaxTouchdownSpeed * 0.76;
+  }
+  if (flight.grounded && flight.runwayState === "arrival") {
+    return 0;
+  }
+  if (preferredBand === "high") {
+    return flight.maxSpeed * 0.64;
+  }
+  if (preferredBand === "mid") {
+    return flight.maxSpeed * 0.54;
+  }
+  return flight.maxSpeed * 0.46;
+}
+
+function updateAutoplayInput() {
+  if (!state.autoPlayEnabled || state.screen !== "flight" || !state.flight) {
+    return;
+  }
+  const flight = state.flight;
+  const landingAssist = landingAssistState(flight);
+  const targetAltitude = autoplayTargetAltitude(flight);
+  const targetSpeed = autoplayTargetSpeed(flight);
+  let up = false;
+  let down = false;
+  let left = false;
+  let right = false;
+
+  if (flight.grounded && flight.runwayState === "departure") {
+    right = true;
+    up = flight.speed >= currentRotateSpeed(flight) * 0.985;
+  } else if (flight.grounded && flight.runwayState === "arrival") {
+    left = true;
+  } else {
+    const altitudeError = targetAltitude - flight.altitude;
+    const speedError = targetSpeed - flight.speed;
+
+    if (landingAssist.flareWindow) {
+      up = altitudeError > 4 || flight.vy < -10;
+      down = false;
+    } else if (flight.phase === "approach") {
+      up = altitudeError > 10 || (altitudeError > 3 && flight.vy < -14);
+      down = !up && (altitudeError < -14 || (altitudeError < -4 && flight.vy > 18));
+    } else {
+      up = altitudeError > 28 || (altitudeError > 10 && flight.vy < -36);
+      down = !up && (altitudeError < -32 || (altitudeError < -10 && flight.vy > 42));
+    }
+
+    if (flight.engineOut) {
+      right = false;
+      left = false;
+      if (!landingAssist.flareWindow && altitudeError < -36) {
+        down = true;
+        up = false;
+      }
+    } else if (landingAssist.flareWindow) {
+      left = true;
+    } else if (flight.phase === "approach") {
+      left = speedError < -24;
+      right = speedError > 64 && landingAssist.distanceToThreshold > 1200;
+    } else {
+      left = speedError < -120;
+      right = speedError > 150;
+    }
+
+    if (flight.phase === "approach" && landingAssist.distanceToThreshold < 520) {
+      left = true;
+      right = false;
+      if (landingAssist.heightAboveDeck > 28) {
+        up = false;
+        down = true;
+      } else {
+        down = false;
+        up = flight.vy < -8 || altitudeError > -2;
+      }
+    }
+
+    if (flight.phase === "approach" && landingAssist.distanceToThreshold < 180) {
+      left = true;
+      right = false;
+      if (landingAssist.heightAboveDeck > 18) {
+        up = false;
+        down = true;
+      } else {
+        down = false;
+        up = flight.vy < -6;
+      }
+    }
+  }
+
+  state.input.up = up;
+  state.input.down = down;
+  state.input.left = left;
+  state.input.right = right;
 }
 
 function landingAssistState(flight) {
@@ -1003,6 +1577,8 @@ function getSnapshot() {
   const selectedGhost = selectedRoute ? getGhostRun(selectedRoute.id) : null;
   const snapshot = {
     screen: state.screen,
+    hangarOpen: state.hangarOpen,
+    autoPlayEnabled: state.autoPlayEnabled,
     selectedRoute: state.selectedRoute,
     selectedVehicleId: state.selectedVehicleId,
     unlockedRoute: state.unlockedRoute,
@@ -1318,6 +1894,14 @@ function updateMusic() {
 
 function setScreen(name) {
   state.screen = name;
+  if (name !== "map") {
+    state.hangarOpen = false;
+    document.body.classList.remove("hangar-open");
+    if (hangarOverlay) {
+      hangarOverlay.classList.add("hidden");
+      hangarOverlay.setAttribute("aria-hidden", "true");
+    }
+  }
   document.body.dataset.screen = name;
   mapScreen.classList.toggle("hidden", name !== "map");
   flightScreen.classList.toggle("hidden", name !== "flight");
@@ -1336,6 +1920,7 @@ function setScreen(name) {
   }
   updateGhostToggleLabel();
   updateGhostControls();
+  updateAutoplayToggleLabel();
   renderDebugPanel();
 }
 
@@ -1801,7 +2386,9 @@ function updateRouteInfo() {
   });
   startFlightButton.disabled = locked || transitioning;
   startFlightButton.textContent = locked ? "尚未解鎖" : transitioning ? "過場飛行中..." : `以 ${vehicle.badge} 從 A 機場起飛`;
-  renderVehiclePicker();
+  renderVehicleSummary();
+  renderHangarRoster();
+  drawHangarStage();
   updateGhostToggleLabel();
   updateGhostControls();
 }
@@ -3262,11 +3849,8 @@ function startFlight(options = {}) {
   state.flight.ghostRecorder = createGhostRecorder();
   recordGhostSample(state.flight, true);
   state.result = null;
-  state.input.up = false;
-  state.input.down = false;
-  state.input.left = false;
-  state.input.right = false;
-  state.input.airbrake = false;
+  releaseFlightInputs();
+  updateAutoplayToggleLabel();
   updateHud();
 }
 
@@ -3313,7 +3897,8 @@ function flightSystemsLabel(flight) {
       ? `低油量 ${Math.round(currentFuelPercent(flight))}%`
       : `燃油 ${Math.round(currentFuelPercent(flight))}%`;
   const orbitLabel = orbitProfile.zone === "atmosphere" ? "" : ` · ${orbitProfile.label}`;
-  return `${vehicleLabel} · ${altitudeBandLabel(flight)}${orbitLabel} · ${fuelLabel} · 方向鍵速度 ${speedControlLabel(flight)} · 自動襟翼 ${flapsLabel(flight.flaps)} · 自動空煞 ${state.input.airbrake ? "展開" : "收起"}`;
+  const controlLabel = state.autoPlayEnabled ? `自動飛行 ${speedControlLabel(flight)}` : `方向鍵速度 ${speedControlLabel(flight)}`;
+  return `${vehicleLabel} · ${altitudeBandLabel(flight)}${orbitLabel} · ${fuelLabel} · ${controlLabel} · 自動襟翼 ${flapsLabel(flight.flaps)} · 自動空煞 ${state.input.airbrake ? "展開" : "收起"}`;
 }
 
 function drawFlight() {
@@ -3715,11 +4300,7 @@ function finishFlight(reason) {
   });
 
   state.flight = null;
-  state.input.up = false;
-  state.input.down = false;
-  state.input.left = false;
-  state.input.right = false;
-  state.input.airbrake = false;
+  releaseFlightInputs();
 }
 
 function tick(now) {
@@ -3737,6 +4318,7 @@ function tick(now) {
     }
   } else if (state.screen === "flight") {
     resizeCanvas(gameCanvas);
+    updateAutoplayInput();
     updateFlight(dt);
     if (state.screen === "flight") {
       updateOrbitFeedback(state.flight, ROUTES[state.flight.routeIndex], dt);
@@ -3766,6 +4348,7 @@ function bindHoldButton(button, key) {
     return;
   }
   const press = (event) => {
+    disableAutoplayForManualControl();
     ensureAudioReady();
     event.preventDefault();
     if (button.setPointerCapture && event.pointerId !== undefined) {
@@ -3828,6 +4411,10 @@ function installDebugApi() {
       selectVehicle(vehicleId, { persist: true, playSound: false });
       return getSnapshot();
     },
+    setAutoplay(enabled) {
+      setAutoplayEnabled(Boolean(enabled), { playSound: false });
+      return getSnapshot();
+    },
     setUnlockedRoute(index) {
       state.unlockedRoute = clamp(index, 0, ROUTES.length - 1);
       saveProgress();
@@ -3858,11 +4445,7 @@ function installDebugApi() {
       return getSnapshot();
     },
     releaseInput() {
-      state.input.up = false;
-      state.input.down = false;
-      state.input.left = false;
-      state.input.right = false;
-      state.input.airbrake = false;
+      releaseFlightInputs();
       return getSnapshot();
     },
     setThrottle(value) {
@@ -3893,7 +4476,25 @@ function installDebugApi() {
 }
 
 function installEventListeners() {
-  vehiclePicker?.addEventListener("click", (event) => {
+  openHangarButton?.addEventListener("click", (event) => {
+    ensureAudioReady();
+    event.preventDefault();
+    playSfx("tap");
+    setHangarOpen(true);
+  });
+
+  closeHangarButton?.addEventListener("click", (event) => {
+    event.preventDefault();
+    playSfx("tap");
+    setHangarOpen(false);
+  });
+
+  hangarBackdrop?.addEventListener("click", () => {
+    playSfx("tap");
+    setHangarOpen(false);
+  });
+
+  hangarList?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-vehicle-id]");
     if (!(button instanceof HTMLElement)) {
       return;
@@ -3906,6 +4507,10 @@ function installEventListeners() {
   startFlightButton.addEventListener("click", () => {
     ensureAudioReady();
     beginMapTransition();
+  });
+
+  bindTapButton(autoplayToggleButton, () => {
+    setAutoplayEnabled(!state.autoPlayEnabled);
   });
 
   retryFlightButton.addEventListener("click", () => {
@@ -4028,25 +4633,34 @@ function installEventListeners() {
   });
 
   window.addEventListener("keydown", (event) => {
+    if (event.code === "Escape" && state.hangarOpen) {
+      setHangarOpen(false);
+      event.preventDefault();
+      return;
+    }
     if (event.code === "ArrowUp" || event.code === "KeyW") {
+      disableAutoplayForManualControl();
       ensureAudioReady();
       state.input.up = true;
       event.preventDefault();
       return;
     }
     if (event.code === "ArrowDown" || event.code === "KeyS") {
+      disableAutoplayForManualControl();
       ensureAudioReady();
       state.input.down = true;
       event.preventDefault();
       return;
     }
     if (event.code === "ArrowLeft" || event.code === "KeyA") {
+      disableAutoplayForManualControl();
       ensureAudioReady();
       state.input.left = true;
       event.preventDefault();
       return;
     }
     if (event.code === "ArrowRight" || event.code === "KeyD") {
+      disableAutoplayForManualControl();
       ensureAudioReady();
       state.input.right = true;
       event.preventDefault();
@@ -4084,16 +4698,16 @@ function installEventListeners() {
   }, { once: true });
 
   window.addEventListener("blur", () => {
-    state.input.up = false;
-    state.input.down = false;
-    state.input.left = false;
-    state.input.right = false;
-    state.input.airbrake = false;
+    releaseFlightInputs();
   });
 
   window.addEventListener("resize", () => {
     resizeCanvas(mapCanvas);
     resizeCanvas(gameCanvas);
+    if (state.hangarOpen) {
+      resizeCanvas(hangarCanvas);
+      drawHangarStage();
+    }
   });
 
   bindHoldButton(touchUp, "up");
@@ -4107,6 +4721,7 @@ function init() {
   updateAudioToggleLabel();
   updateGhostToggleLabel();
   updateDebugToggleLabel();
+  updateAutoplayToggleLabel();
   selectRoute(0);
   setScreen("map");
   installDebugApi();

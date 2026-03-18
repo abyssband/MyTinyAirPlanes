@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@400;600;700&family=M+PLUS+Rounded+1c:wght@400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./styles.css?v=20260314-0115">
+  <link rel="stylesheet" href="./styles.css?v=20260318-2215">
 </head>
 <body>
   <div class="app-shell">
@@ -66,10 +66,11 @@
             </section>
             <div class="vehicle-card">
               <div class="vehicle-card-head">
-                <h3>機型選擇</h3>
-                <p>起飛前先選一台今天要飛的載具</p>
+                <h3>Hangar</h3>
+                <p>起飛前先挑今天要飛的機型</p>
               </div>
-              <div id="vehicle-picker" class="vehicle-picker" aria-live="polite"></div>
+              <div id="vehicle-summary" class="vehicle-summary" aria-live="polite"></div>
+              <button id="open-hangar" class="ghost-btn vehicle-open-btn">打開機庫選機頁</button>
             </div>
             <div class="mission-card">
               <h3>飛行目標</h3>
@@ -89,6 +90,27 @@
             <button id="start-flight" class="primary-btn">從 A 機場起飛</button>
           </aside>
         </div>
+        <div id="hangar-overlay" class="hangar-overlay hidden" aria-hidden="true">
+          <div id="hangar-backdrop" class="hangar-backdrop"></div>
+          <section class="panel hangar-panel" aria-label="機庫選機頁">
+            <div class="hangar-head">
+              <div>
+                <p class="hangar-kicker">Flight Hangar</p>
+                <h2>挑一台今天要飛的機型</h2>
+              </div>
+              <button id="close-hangar" class="ghost-btn">關閉</button>
+            </div>
+            <div class="hangar-layout">
+              <div class="hangar-stage">
+                <canvas id="hangar-canvas" aria-label="機型插畫預覽"></canvas>
+                <div id="hangar-stage-meta" class="hangar-stage-meta"></div>
+              </div>
+              <div class="hangar-roster">
+                <div id="hangar-list" class="hangar-list" aria-live="polite"></div>
+              </div>
+            </div>
+          </section>
+        </div>
       </section>
 
       <section id="flight-screen" class="screen hidden">
@@ -107,8 +129,9 @@
             <p id="hud-orbit">選定載具巡航中 · 高空貼紙目標待命</p>
             <p id="hud-mission">先沿 A 機場跑道加速起飛，最後在 B 機場跑道接地並滑停</p>
           </div>
+          <button id="autoplay-toggle" class="ghost-btn autoplay-toggle" aria-pressed="false">自動飛行: 關</button>
           <pre id="debug-panel" class="debug-panel hidden" aria-live="polite"></pre>
-          <p class="hint flight-hint">控制：只要用方向鍵。`↑` 拉升、`↓` 壓低、`←` 減速進場、`→` 加速巡航。飛機會自動處理油門、襟翼和空煞；`G` 仍可切換鬼影。</p>
+          <p class="hint flight-hint">控制：只要用方向鍵。`↑` 拉升、`↓` 壓低、`←` 減速進場、`→` 加速巡航。飛機會自動處理油門、襟翼和空煞；也可以按 `自動飛行` 讓它自己飛，一碰方向鍵就會切回手動。</p>
         </div>
       </section>
 
@@ -151,6 +174,6 @@
     <button id="touch-right" class="touch-btn touch-btn-small">加速</button>
   </div>
 
-  <script type="module" src="./main.js?v=20260314-0115"></script>
+  <script type="module" src="./main.js?v=20260318-2215"></script>
 </body>
 </html>

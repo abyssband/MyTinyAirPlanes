@@ -55,7 +55,7 @@ async function main() {
       stickers: JSON.parse(localStorage.getItem("tiny-airplanes.orbit-stickers") || "{}"),
     }));
     assert(snapshot.unlockedRoute === 2, `預期 migration 後保留已解鎖航線，實際 ${snapshot.unlockedRoute}`);
-    assert(persisted.version === "10", `預期 migration 後寫入 save version 10，實際 ${persisted.version}`);
+    assert(persisted.version === "11", `預期 migration 後寫入 save version 11，實際 ${persisted.version}`);
     assert(persisted.bestRuns?.["yvr-lax"]?.time === 18.5, "預期 migration 後最佳紀錄保留 time");
     assert(Object.keys(persisted.stickers || {}).length === 0, "預期 migration 後會建立空的貼紙收藏欄位");
 

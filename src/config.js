@@ -7,7 +7,7 @@ export const STORAGE_GHOST_ENABLED_KEY = "tiny-airplanes.ghost-enabled";
 export const STORAGE_STICKERS_KEY = "tiny-airplanes.orbit-stickers";
 export const STORAGE_VEHICLE_KEY = "tiny-airplanes.vehicle-id";
 export const STORAGE_SAVE_VERSION_KEY = "tiny-airplanes.save-version";
-export const CURRENT_SAVE_VERSION = 10;
+export const CURRENT_SAVE_VERSION = 11;
 export const SPACE_REFERENCE = {
   visualStartKm: 24,
   karmanLineKm: 100,
@@ -29,6 +29,12 @@ export const VEHICLE_PROFILES = {
     accent: "#f39c72",
     stripe: "#fff2ba",
     canopy: "#79a0c8",
+    hangar: {
+      role: "區域航線好夥伴",
+      stamp: "starter favorite",
+      note: "圓潤、安定、最好上手的日常主力機。",
+      highlights: ["起降最穩", "巡航平均", "適合練進場"],
+    },
     fuelCapacityMultiplier: 1,
     minAirSpeed: 1180,
     maxSpeed: 5050,
@@ -58,6 +64,12 @@ export const VEHICLE_PROFILES = {
     accent: "#8fc8ff",
     stripe: "#ffe8c2",
     canopy: "#9feaff",
+    hangar: {
+      role: "高空實驗測試機",
+      stamp: "orbit testbed",
+      note: "尖銳、輕快、帶著試驗味道的高空衝刺載具。",
+      highlights: ["爬升積極", "高空速度強", "近太空最有感"],
+    },
     fuelCapacityMultiplier: 1.28,
     minAirSpeed: 1280,
     maxSpeed: 7600,
@@ -87,6 +99,12 @@ export const VEHICLE_PROFILES = {
     accent: "#edf3ff",
     stripe: "#ffb36b",
     canopy: "#223451",
+    hangar: {
+      role: "返航滑翔穿梭機",
+      stamp: "re-entry darling",
+      note: "厚實的可返回式穿梭機，擅長高空回降與長距離滑翔。",
+      highlights: ["高空滑翔穩", "長航段舒服", "返場風格最強"],
+    },
     fuelCapacityMultiplier: 1.36,
     minAirSpeed: 1240,
     maxSpeed: 7200,
@@ -560,6 +578,7 @@ function haversineKm(from, to) {
 
 const REAL_WORLD_CRUISE_KMH = 820;
 const GAME_WORLD_SPEED_TARGET = 3000;
+const GAMEPLAY_DURATION_SCALE = 0.2;
 
 function realFlightMinutes(realDistanceKm) {
   return Math.max(45, Math.round((realDistanceKm / REAL_WORLD_CRUISE_KMH) * 60));
@@ -567,7 +586,8 @@ function realFlightMinutes(realDistanceKm) {
 
 function gameplayMinutes(realDistanceKm) {
   const realHours = realDistanceKm / REAL_WORLD_CRUISE_KMH;
-  return Number(clamp(2.8 + realHours * 0.85 + Math.pow(realHours, 0.65) * 0.45, 3.2, 11.5).toFixed(1));
+  const baselineMinutes = clamp(2.8 + realHours * 0.85 + Math.pow(realHours, 0.65) * 0.45, 3.2, 11.5);
+  return Number((baselineMinutes * GAMEPLAY_DURATION_SCALE).toFixed(1));
 }
 
 function gameDistanceUnits(playMinutes) {

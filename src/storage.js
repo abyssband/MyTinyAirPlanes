@@ -15,8 +15,8 @@ import {
   STORAGE_VEHICLE_KEY,
   VEHICLE_PROFILES,
   ACTIVE_VEHICLE_ID,
-} from "./config.js?v=20260314-0115";
-import { clamp } from "./utils.js?v=20260314-0115";
+} from "./config.js?v=20260318-2215";
+import { clamp } from "./utils.js?v=20260318-2215";
 
 export function normalizeBestRuns(raw) {
   const bestRuns = {};
